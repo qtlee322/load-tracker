@@ -258,6 +258,7 @@
 
 </main>
 
+
 <nav class="tabs">
   <button class="tab-btn active" data-view="log"><span class="ic">➕</span>Log Load</button>
   <button class="tab-btn" data-view="pay"><span class="ic">💵</span>Pay</button>
