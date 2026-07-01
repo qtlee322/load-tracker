@@ -1,0 +1,1339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Load Tracker">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0f172a">
+<title>Load Tracker</title>
+<style>
+  :root{
+    --bg:#0f172a; --card:#1a2540; --card2:#212f50; --border:#2c3a5e;
+    --text:#eef2ff; --muted:#93a1c4; --accent:#3b82f6; --accent2:#2563eb;
+    --green:#22c55e; --red:#ef4444; --radius:14px;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;}
+  body{padding-bottom:90px;}
+  header{
+    position:sticky; top:0; z-index:10; background:rgba(15,23,42,0.92);
+    backdrop-filter:blur(10px); padding:calc(env(safe-area-inset-top) + 14px) 18px 12px;
+    border-bottom:1px solid var(--border);
+  }
+  header h1{margin:0; font-size:20px; font-weight:700;}
+  header p{margin:2px 0 0; font-size:13px; color:var(--muted);}
+  main{padding:16px; max-width:560px; margin:0 auto;}
+  .card{background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
+    padding:16px; margin-bottom:14px;}
+  .summary-grid{display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:14px;}
+  .summary-grid .stat{background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
+    padding:12px 8px; text-align:center;}
+  .stat .v{font-size:18px; font-weight:700;}
+  .stat .l{font-size:11px; color:var(--muted); margin-top:2px;}
+  label{display:block; font-size:13px; color:var(--muted); margin:12px 0 6px; font-weight:600;}
+  label:first-of-type{margin-top:0;}
+  input, select, textarea{
+    width:100%; background:var(--card2); border:1px solid var(--border); color:var(--text);
+    padding:12px; border-radius:10px; font-size:16px; font-family:inherit;
+  }
+  input:focus, select:focus, textarea:focus{outline:2px solid var(--accent); border-color:var(--accent);}
+  textarea{resize:vertical; min-height:60px;}
+  .row2{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+  button{font-family:inherit; cursor:pointer; border:none;}
+  .btn{display:block; width:100%; padding:13px; border-radius:10px; font-size:16px; font-weight:600;
+    background:var(--accent); color:white; margin-top:16px; text-align:center;}
+  .btn:active{background:var(--accent2);}
+  .btn-secondary{background:var(--card2); color:var(--text); border:1px solid var(--border);}
+  .btn-danger{background:transparent; color:var(--red); border:1px solid var(--red);}
+  .btn-small{width:auto; padding:8px 14px; font-size:13px; margin-top:0; display:inline-block;}
+  nav.tabs{
+    position:fixed; bottom:0; left:0; right:0; display:flex; background:rgba(20,28,50,0.96);
+    backdrop-filter:blur(12px); border-top:1px solid var(--border);
+    padding-bottom:env(safe-area-inset-bottom); z-index:10;
+  }
+  nav.tabs button{flex:1; background:none; padding:10px 2px 8px; color:var(--muted);
+    font-size:10.5px; display:flex; flex-direction:column; align-items:center; gap:3px; font-weight:600;}
+  nav.tabs button .ic{font-size:19px;}
+  nav.tabs button.active{color:var(--accent);}
+  .view{display:none;}
+  .view.active{display:block;}
+  .route-chip{
+    display:flex; justify-content:space-between; align-items:center; padding:12px;
+    background:var(--card2); border:1px solid var(--border); border-radius:10px; margin-bottom:8px;
+  }
+  .route-chip .num{font-weight:700; font-size:15px;}
+  .route-chip .meta{font-size:12px; color:var(--muted); margin-top:2px;}
+  .route-chip .actions{display:flex; gap:8px;}
+  .icon-btn{background:none; color:var(--muted); font-size:18px; padding:4px 6px;}
+  .load-card{background:var(--card2); border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:10px;}
+  .load-top{display:flex; justify-content:space-between; align-items:flex-start;}
+  .load-top .route{font-weight:700; font-size:15px;}
+  .load-top .route .loadnum{color:var(--muted); font-weight:500; font-size:13px;}
+  .load-top .date{font-size:12px; color:var(--muted); margin-top:2px;}
+  .load-top .pay{font-weight:700; color:var(--green); font-size:16px; white-space:nowrap;}
+  .load-mid{display:flex; gap:14px; margin-top:8px; font-size:13px; color:var(--muted); flex-wrap:wrap;}
+  .load-notes{font-size:13px; color:var(--muted); margin-top:8px; font-style:italic;}
+  .docs-row{display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;}
+  .doc-thumb{width:54px; height:54px; border-radius:8px; object-fit:cover; border:1px solid var(--border); background:#0008;}
+  .doc-thumb.pdf{display:flex; align-items:center; justify-content:center; font-size:11px; color:var(--muted); background:var(--card);}
+  .load-actions{display:flex; gap:10px; margin-top:10px;}
+  .empty{text-align:center; color:var(--muted); padding:40px 20px; font-size:14px; line-height:1.5;}
+  .filebox{
+    border:2px dashed var(--border); border-radius:10px; padding:18px; text-align:center;
+    color:var(--muted); font-size:13px; margin-top:6px;
+  }
+  .filebox input{display:none;}
+  .filebox-btns{display:flex; gap:8px; margin-top:10px;}
+  .filebox-btns label{margin:0; flex:1;}
+  .filebox-btns .pick{
+    display:block; background:var(--accent); color:#fff; padding:10px; border-radius:8px;
+    font-size:13px; font-weight:600; cursor:pointer; text-align:center;
+  }
+  .pending-docs{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;}
+  .pending-doc{position:relative;}
+  .pending-doc img, .pending-doc .pdfchip{width:60px; height:60px; border-radius:8px; object-fit:cover;}
+  .pending-doc .pdfchip{display:flex; align-items:center; justify-content:center; background:var(--card); border:1px solid var(--border); font-size:10px; color:var(--muted); text-align:center;}
+  .pending-doc .rm{
+    position:absolute; top:-6px; right:-6px; background:var(--red); color:#fff; border-radius:50%;
+    width:20px; height:20px; font-size:13px; line-height:20px; text-align:center; padding:0;
+  }
+  .modal-bg{position:fixed; inset:0; background:rgba(0,0,0,0.75); z-index:50; display:flex;
+    align-items:center; justify-content:center; padding:20px;}
+  .modal{background:var(--card); border-radius:14px; padding:18px; max-width:420px; width:100%; max-height:85vh; overflow-y:auto;}
+  .modal img{width:100%; border-radius:8px; margin-top:10px;}
+  .toast{position:fixed; bottom:100px; left:50%; transform:translateX(-50%); background:var(--green);
+    color:#06240f; padding:10px 18px; border-radius:30px; font-size:13px; font-weight:700; z-index:60;
+    opacity:0; transition:opacity .2s; max-width:80vw; text-align:center;}
+  .toast.show{opacity:1;}
+  .section-title{font-size:13px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.04em; margin:4px 0 10px;}
+  .info-box{padding:12px; border-radius:10px; background:var(--card2); border:1px solid var(--border); font-size:13px; line-height:1.5; margin-bottom:14px;}
+  .helptext{font-size:13px; color:var(--muted); line-height:1.5; margin:0 0 4px;}
+  ol.steps{font-size:13px; color:var(--muted); padding-left:20px; line-height:1.7; margin:8px 0 0;}
+  ol.steps li{margin-bottom:7px;}
+  ol.steps strong{color:var(--text);}
+  .codeblock{
+    background:#0a0f1f; border:1px solid var(--border); border-radius:10px; padding:12px;
+    font-size:11px; color:#9fd3a3; overflow-x:auto; white-space:pre; margin-top:8px; max-height:160px;
+  }
+  .paycheck-card{border:1px solid var(--accent);}
+  .paycheck-amt{font-size:34px; font-weight:800; color:var(--green); margin-top:2px;}
+  .paycheck-sub{font-size:13px; color:var(--muted); margin-top:6px; line-height:1.5;}
+  .badge{display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:700;}
+  .badge.paid{background:rgba(34,197,94,0.15); color:var(--green);}
+  .badge.upcoming{background:rgba(59,130,246,0.15); color:var(--accent);}
+  .badge.progress{background:rgba(147,161,196,0.15); color:var(--muted);}
+
+  @media print{
+    body{padding-bottom:0; background:#fff; color:#000;}
+    header{position:static; background:#fff; border-bottom:2px solid #000; backdrop-filter:none; -webkit-print-color-adjust:exact;}
+    header h1, header p{color:#000;}
+    main{max-width:100%; padding:0 4px;}
+    nav.tabs, .filebox, .toast, .modal-bg, .no-print,
+    button, input, select, textarea{display:none !important;}
+    .card, .route-chip, .load-card, .stat{
+      background:#fff !important; border:1px solid #999 !important; color:#000 !important;
+      break-inside:avoid; -webkit-print-color-adjust:exact;
+    }
+    .pay, .paycheck-amt, .num{color:#000 !important;}
+    .meta, .muted, .helptext, .date, .l{color:#444 !important;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+    <div>
+      <h1>🚚 Load Tracker</h1>
+      <p id="headerSub">Routes, pay, miles &amp; docs in one place</p>
+    </div>
+    <button class="icon-btn no-print" id="printPageBtn" title="Print / Save as PDF" style="font-size:22px; padding:2px 4px;">🖨️</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- LOG LOAD VIEW -->
+  <section id="view-log" class="view active">
+    <div class="summary-grid" id="quickStats"></div>
+
+    <div class="card no-print">
+      <div class="section-title">Log a Load</div>
+
+      <label for="logRoute">Route name</label>
+      <select id="logRoute">
+        <option value="">Select a saved route…</option>
+      </select>
+
+      <label for="logLoadNumber">Load #</label>
+      <input type="text" id="logLoadNumber" placeholder="e.g. 48213" inputmode="text">
+
+      <label for="logDate">Date ran</label>
+      <input type="date" id="logDate">
+
+      <div class="row2">
+        <div>
+          <label for="logMiles">Miles</label>
+          <input type="number" id="logMiles" inputmode="decimal" placeholder="0">
+        </div>
+        <div>
+          <label for="logPay">Pay ($)</label>
+          <input type="number" id="logPay" inputmode="decimal" placeholder="0.00">
+        </div>
+      </div>
+
+      <label for="logNotes">Notes (optional)</label>
+      <textarea id="logNotes" placeholder="e.g. delay at pickup, detention, etc."></textarea>
+
+      <label>Attach documents</label>
+      <div class="filebox">
+        Scan or attach BOLs, rate confirmations, receipts
+        <div class="filebox-btns">
+          <label class="pick" for="captureInput">📷 Take Photo</label>
+          <label class="pick" for="uploadInput">📁 Choose File</label>
+        </div>
+        <input type="file" id="captureInput" accept="image/*" capture="environment" multiple>
+        <input type="file" id="uploadInput" accept="image/*,application/pdf" multiple>
+      </div>
+      <div class="pending-docs" id="pendingDocs"></div>
+
+      <button class="btn" id="saveLoadBtn">Save Load</button>
+    </div>
+  </section>
+
+  <!-- PAY VIEW -->
+  <section id="view-pay" class="view">
+    <div id="payList"></div>
+  </section>
+
+  <!-- ROUTES VIEW -->
+  <section id="view-routes" class="view">
+    <div class="card no-print">
+      <div class="section-title">Add / Edit Route</div>
+      <input type="hidden" id="routeEditingId">
+      <label for="routeNumber">Route name</label>
+      <input type="text" id="routeNumber" placeholder="e.g. Dallas Run">
+
+      <div class="row2">
+        <div>
+          <label for="routeMiles">Default miles</label>
+          <input type="number" id="routeMiles" inputmode="decimal" placeholder="0">
+        </div>
+        <div>
+          <label for="routePay">Default pay ($)</label>
+          <input type="number" id="routePay" inputmode="decimal" placeholder="0.00">
+        </div>
+      </div>
+      <label for="routeNotes">Notes (optional)</label>
+      <input type="text" id="routeNotes" placeholder="e.g. customer / lane description">
+      <button class="btn" id="saveRouteBtn">Save Route</button>
+      <button class="btn btn-secondary" id="cancelRouteEditBtn" style="display:none;">Cancel Edit</button>
+    </div>
+
+    <div class="section-title">Saved Routes</div>
+    <div id="routesList"></div>
+  </section>
+
+  <!-- HISTORY VIEW -->
+  <section id="view-history" class="view">
+    <div class="summary-grid" id="historyStats"></div>
+    <div class="card no-print" style="padding:10px 14px;">
+      <input type="text" id="historySearch" placeholder="Search by route or load #…" style="margin:0;">
+    </div>
+    <div id="historyList"></div>
+  </section>
+
+  <!-- DASHBOARD VIEW -->
+  <section id="view-dashboard" class="view">
+    <div id="dashboardContent"></div>
+  </section>
+
+  <!-- SETTINGS VIEW -->
+  <section id="view-settings" class="view">
+
+    <div class="card">
+      <div class="section-title">Real-Time Cloud Sync</div>
+      <div class="info-box" id="cloudStatus"></div>
+
+      <div id="cloudSetupBox">
+        <label for="fbConfigInput">Paste your Firebase config here</label>
+        <textarea id="fbConfigInput" placeholder='const firebaseConfig = { apiKey: "...", ... };' style="min-height:90px; font-family:monospace; font-size:12px;"></textarea>
+        <button class="btn" id="saveFbConfigBtn">Save Config</button>
+      </div>
+      <button class="btn btn-secondary" id="googleSignInBtn" style="display:none;">Sign in with Google</button>
+      <button class="btn btn-danger" id="fbSignOutBtn" style="display:none;">Sign Out</button>
+    </div>
+
+    <div class="card">
+      <div class="section-title">How to Set Up Real-Time Sync (one time)</div>
+      <ol class="steps">
+        <li>Go to <strong>console.firebase.google.com</strong>, sign in with a Google account, tap <strong>Add project</strong>, name it, skip Google Analytics, tap <strong>Create project</strong>.</li>
+        <li><strong>Build → Authentication → Get started → Sign-in method</strong> tab → enable <strong>Google</strong> → Save.</li>
+        <li><strong>Build → Firestore Database → Create database</strong> → pick a location → Start in production mode → Create. Then open the <strong>Rules</strong> tab, replace everything with the rules below, and tap <strong>Publish</strong>.</li>
+        <li><strong>Build → Storage → Get started</strong> → keep the defaults → Done. Then open its <strong>Rules</strong> tab too, paste the storage rules below, and <strong>Publish</strong>.</li>
+        <li><strong>Project settings (gear icon) → General</strong>, scroll to "Your apps", tap the <strong>&lt;/&gt;</strong> (web) icon, give it any nickname, register it. It shows a code block starting with <strong>const firebaseConfig = {...}</strong> — copy that whole block.</li>
+        <li>This app is already connected to Firebase — on any device, just tap <strong>Sign in with Google</strong> below with the same Google account to link that device in. Everything then syncs automatically and instantly.</li>
+      </ol>
+      <div class="section-title" style="margin-top:14px;">Firestore Rules</div>
+      <pre class="codeblock" id="firestoreRulesPreview"></pre>
+      <button class="btn btn-secondary btn-small" id="copyFirestoreRulesBtn" style="width:100%; margin-top:8px;">📋 Copy Firestore Rules</button>
+      <div class="section-title" style="margin-top:14px;">Storage Rules</div>
+      <pre class="codeblock" id="storageRulesPreview"></pre>
+      <button class="btn btn-secondary btn-small" id="copyStorageRulesBtn" style="width:100%; margin-top:8px;">📋 Copy Storage Rules</button>
+    </div>
+
+    <div class="card">
+      <div class="section-title">Backup &amp; Restore (local file)</div>
+      <p class="helptext">Works with or without cloud sync — a manual export you can keep as a personal backup.</p>
+      <div class="info-box" id="settingsStats"></div>
+
+      <button class="btn" id="exportBtn">⬇️ Export Backup</button>
+
+      <label for="restoreInput" class="btn btn-secondary" style="cursor:pointer;">⬆️ Restore from Backup</label>
+      <input type="file" id="restoreInput" accept="application/json,.json">
+    </div>
+
+    <div class="card">
+      <div class="section-title">Pay Schedule</div>
+      <p class="helptext" style="margin:0;">Work week: Sunday – Saturday 11:00 PM. Paycheck day: Friday, two weeks after the work week ends. This is used to calculate the Pay tab — let me know if this ever changes.</p>
+    </div>
+  </section>
+
+</main>
+
+<nav class="tabs">
+  <button class="tab-btn active" data-view="log"><span class="ic">➕</span>Log Load</button>
+  <button class="tab-btn" data-view="pay"><span class="ic">💵</span>Pay</button>
+  <button class="tab-btn" data-view="routes"><span class="ic">🗂️</span>Routes</button>
+  <button class="tab-btn" data-view="history"><span class="ic">📜</span>History</button>
+  <button class="tab-btn" data-view="dashboard"><span class="ic">📊</span>Dashboard</button>
+  <button class="tab-btn" data-view="settings"><span class="ic">⚙️</span>Settings</button>
+</nav>
+
+<div id="toast" class="toast"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+<script>
+/* ====================================================================
+   LOCAL STORAGE (IndexedDB) — default, works with zero setup
+   ==================================================================== */
+let db;
+const DB_NAME = 'loadTrackerDB';
+const DB_VERSION = 1;
+
+function openDB(){
+  return new Promise((resolve, reject)=>{
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e)=>{
+      const d = e.target.result;
+      if(!d.objectStoreNames.contains('routes')) d.createObjectStore('routes', {keyPath:'id', autoIncrement:true});
+      if(!d.objectStoreNames.contains('loads')){
+        const s = d.createObjectStore('loads', {keyPath:'id', autoIncrement:true});
+        s.createIndex('date', 'date');
+      }
+      if(!d.objectStoreNames.contains('documents')) d.createObjectStore('documents', {keyPath:'id', autoIncrement:true});
+    };
+    req.onsuccess = (e)=>{ db = e.target.result; resolve(db); };
+    req.onerror = (e)=> reject(e);
+  });
+}
+function tx(storeName, mode='readonly'){ return db.transaction(storeName, mode).objectStore(storeName); }
+function reqToPromise(req){
+  return new Promise((resolve, reject)=>{
+    req.onsuccess = ()=> resolve(req.result);
+    req.onerror = ()=> reject(req.error);
+  });
+}
+async function dbPut(store, obj){ return reqToPromise(tx(store,'readwrite').put(obj)); }
+async function dbGetAll(store){ return reqToPromise(tx(store).getAll()); }
+async function dbGet(store, id){ return reqToPromise(tx(store).get(id)); }
+async function dbDelete(store, id){ return reqToPromise(tx(store,'readwrite').delete(id)); }
+
+function uuid(){
+  if(crypto.randomUUID) return crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c=>{
+    const r = Math.random()*16|0, v = c==='x'?r:(r&0x3|0x8);
+    return v.toString(16);
+  });
+}
+
+/* ====================================================================
+   FIREBASE — optional real-time cloud sync (Auth + Firestore + Storage)
+   ==================================================================== */
+let firebaseApp = null, fbAuth = null, fbDb = null, fbStorage = null, fbUser = null;
+let cloudDocuments = [];
+let unsubRoutes = null, unsubLoads = null, unsubDocs = null;
+
+// Built into the app so every device connects automatically — no copy/paste needed.
+// (These values are safe to be public; Firebase security rules are what actually protect the data.)
+const DEFAULT_FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCN0Nq_WZKi8ml9FXoEl-kNX95KJFYxnsQ",
+  authDomain: "load-tracker-18ce6.firebaseapp.com",
+  projectId: "load-tracker-18ce6",
+  storageBucket: "load-tracker-18ce6.firebasestorage.app",
+  messagingSenderId: "757577143595",
+  appId: "1:757577143595:web:942c068520fa39a24be16e"
+};
+
+const FIRESTORE_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}`;
+const STORAGE_RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{userId}/{allPaths=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}`;
+
+function parseFirebaseConfig(text){
+  // Locate the config object specifically (by finding "apiKey" and matching
+  // balanced braces), so it still works even if the whole Firebase code
+  // snippet was pasted (import statements, initializeApp call, etc).
+  const keyIdx = text.indexOf('apiKey');
+  if(keyIdx === -1) return null;
+  const startIdx = text.lastIndexOf('{', keyIdx);
+  if(startIdx === -1) return null;
+  let depth = 0, endIdx = -1;
+  for(let i = startIdx; i < text.length; i++){
+    if(text[i] === '{') depth++;
+    else if(text[i] === '}'){
+      depth--;
+      if(depth === 0){ endIdx = i; break; }
+    }
+  }
+  if(endIdx === -1) return null;
+  let objText = text.slice(startIdx, endIdx + 1);
+  // Normalize smart/curly quotes in case of autocorrect while typing.
+  objText = objText.replace(/[‘’]/g, "'").replace(/[“”]/g, '"');
+  try{
+    const obj = Function('"use strict"; return (' + objText + ')')();
+    if(obj && obj.apiKey && obj.projectId) return obj;
+  }catch(e){ /* ignore */ }
+  return null;
+}
+
+function detachCloudListeners(){
+  if(unsubRoutes){ unsubRoutes(); unsubRoutes = null; }
+  if(unsubLoads){ unsubLoads(); unsubLoads = null; }
+  if(unsubDocs){ unsubDocs(); unsubDocs = null; }
+}
+
+function attachCloudListeners(uid){
+  detachCloudListeners();
+  const base = fbDb.collection('users').doc(uid);
+  unsubRoutes = base.collection('routes').onSnapshot(snap=>{
+    routes = snap.docs.map(d => ({id: d.id, ...d.data()}));
+    routes.sort((a,b)=> (a.number||'').localeCompare(b.number||'', undefined, {numeric:true}));
+    renderRouteSelect();
+    renderRoutesList();
+  }, ()=> showToast('Cloud sync error (routes)'));
+  unsubLoads = base.collection('loads').onSnapshot(snap=>{
+    loads = snap.docs.map(d => ({id: d.id, ...d.data()}));
+    loads.sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+    renderQuickStats();
+    const historyActive = document.getElementById('view-history').classList.contains('active');
+    if(historyActive) renderHistory();
+    const payActive = document.getElementById('view-pay').classList.contains('active');
+    if(payActive) renderPay();
+  }, ()=> showToast('Cloud sync error (loads)'));
+  unsubDocs = base.collection('documents').onSnapshot(snap=>{
+    cloudDocuments = snap.docs.map(d => ({id: d.id, ...d.data()}));
+    const historyActive = document.getElementById('view-history').classList.contains('active');
+    if(historyActive) renderHistory();
+  }, ()=> showToast('Cloud sync error (documents)'));
+}
+
+async function migrateLocalToCloudIfNeeded(uid){
+  const flag = 'cloudMigrated_' + uid;
+  if(localStorage.getItem(flag)) return;
+  try{
+    const localRoutes = await dbGetAll('routes');
+    const localLoads = await dbGetAll('loads');
+    const localDocs = await dbGetAll('documents');
+    if(!localRoutes.length && !localLoads.length && !localDocs.length){
+      localStorage.setItem(flag, '1');
+      return;
+    }
+    const base = fbDb.collection('users').doc(uid);
+    const routeIdMap = {};
+    for(const r of localRoutes){
+      const {id, ...rest} = r;
+      const ref = await base.collection('routes').add(rest);
+      routeIdMap[id] = ref.id;
+    }
+    const loadIdMap = {};
+    for(const l of localLoads){
+      const {id, ...rest} = l;
+      if(rest.routeId && routeIdMap[rest.routeId] !== undefined) rest.routeId = routeIdMap[rest.routeId];
+      const ref = await base.collection('loads').add(rest);
+      loadIdMap[id] = ref.id;
+    }
+    for(const d of localDocs){
+      if(!d.dataUrl) continue;
+      const newLoadId = loadIdMap[d.loadId] !== undefined ? loadIdMap[d.loadId] : d.loadId;
+      const path = `users/${uid}/documents/${uuid()}-${(d.name||'file').replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+      const ref = fbStorage.ref(path);
+      await ref.putString(d.dataUrl, 'data_url');
+      const url = await ref.getDownloadURL();
+      await base.collection('documents').add({loadId: newLoadId, name: d.name, type: d.type, url, storagePath: path});
+    }
+    localStorage.setItem(flag, '1');
+    showToast('Existing loads uploaded to the cloud ✓');
+  }catch(e){
+    console.warn('Cloud migration error', e);
+  }
+}
+
+function initFirebaseFromSaved(){
+  if(typeof firebase === 'undefined'){ updateCloudUI(); return; }
+  let config = DEFAULT_FIREBASE_CONFIG;
+  const saved = localStorage.getItem('firebaseConfig');
+  if(saved){
+    try{ config = JSON.parse(saved); }catch(e){ /* fall back to the built-in default */ }
+  }
+  try{
+    firebaseApp = (firebase.apps && firebase.apps.length) ? firebase.app() : firebase.initializeApp(config);
+    fbAuth = firebase.auth();
+    fbDb = firebase.firestore();
+    fbStorage = firebase.storage();
+    fbAuth.onAuthStateChanged(async (user)=>{
+      fbUser = user;
+      updateCloudUI();
+      if(user){
+        await migrateLocalToCloudIfNeeded(user.uid);
+        attachCloudListeners(user.uid);
+      } else {
+        detachCloudListeners();
+        cloudDocuments = [];
+        await loadRoutesFromDB();
+        await loadLoadsFromDB();
+        renderQuickStats();
+      }
+    });
+  }catch(e){
+    console.warn('Firebase init failed', e);
+    updateCloudUI();
+  }
+}
+
+function updateCloudUI(){
+  const statusEl = document.getElementById('cloudStatus');
+  const signInBtn = document.getElementById('googleSignInBtn');
+  const signOutBtn = document.getElementById('fbSignOutBtn');
+  const setupBox = document.getElementById('cloudSetupBox');
+  if(!statusEl) return;
+  if(fbUser){
+    statusEl.innerHTML = `✅ <strong style="color:var(--green);">Signed in</strong> as ${escapeHtml(fbUser.email||'')} — this device syncs in real time. Sign in with the same Google account on your other devices to link them together.`;
+    signInBtn.style.display = 'none';
+    signOutBtn.style.display = 'block';
+    setupBox.style.display = 'none';
+  } else if(fbAuth){
+    statusEl.innerHTML = `⚪ Config saved. Tap <strong>Sign in with Google</strong> below to turn on real-time sync.`;
+    signInBtn.style.display = 'block';
+    signOutBtn.style.display = 'none';
+    setupBox.style.display = 'block';
+  } else {
+    statusEl.innerHTML = `📵 Not set up yet — follow the steps below to turn on real-time sync across devices.`;
+    signInBtn.style.display = 'none';
+    signOutBtn.style.display = 'none';
+    setupBox.style.display = 'block';
+  }
+}
+
+/* ====================================================================
+   DATA HELPERS — branch between cloud (Firestore/Storage) and local (IndexedDB)
+   ==================================================================== */
+async function addRoute(route){
+  if(fbUser){
+    const ref = await fbDb.collection('users').doc(fbUser.uid).collection('routes').add(route);
+    return {id: ref.id, ...route};
+  }
+  route.id = uuid();
+  await dbPut('routes', route);
+  return route;
+}
+async function updateRouteRec(route){
+  if(fbUser){
+    const {id, ...rest} = route;
+    await fbDb.collection('users').doc(fbUser.uid).collection('routes').doc(id).set(rest, {merge:true});
+    return;
+  }
+  await dbPut('routes', route);
+}
+async function removeRoute(id){
+  if(fbUser){
+    await fbDb.collection('users').doc(fbUser.uid).collection('routes').doc(id).delete();
+    return;
+  }
+  await dbDelete('routes', id);
+}
+async function addLoad(load){
+  if(fbUser){
+    const ref = await fbDb.collection('users').doc(fbUser.uid).collection('loads').add(load);
+    return {id: ref.id, ...load};
+  }
+  load.id = uuid();
+  await dbPut('loads', load);
+  return load;
+}
+async function removeLoad(id){
+  if(fbUser){
+    await fbDb.collection('users').doc(fbUser.uid).collection('loads').doc(id).delete();
+    return;
+  }
+  await dbDelete('loads', id);
+}
+async function addDocument(doc){
+  if(fbUser){
+    try{
+      const path = `users/${fbUser.uid}/documents/${uuid()}-${(doc.name||'file').replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+      const ref = fbStorage.ref(path);
+      await ref.putString(doc.dataUrl, 'data_url');
+      const url = await ref.getDownloadURL();
+      const docRef = await fbDb.collection('users').doc(fbUser.uid).collection('documents').add({
+        loadId: doc.loadId, name: doc.name, type: doc.type, url, storagePath: path
+      });
+      return {id: docRef.id, loadId: doc.loadId, name: doc.name, type: doc.type, url};
+    }catch(e){
+      showToast('Could not upload document to cloud');
+      return null;
+    }
+  }
+  doc.id = uuid();
+  await dbPut('documents', doc);
+  return doc;
+}
+async function removeDocument(id){
+  if(fbUser){
+    try{
+      const full = cloudDocuments.find(d => String(d.id) === String(id));
+      if(full && full.storagePath){ await fbStorage.ref(full.storagePath).delete().catch(()=>{}); }
+      await fbDb.collection('users').doc(fbUser.uid).collection('documents').doc(id).delete();
+    }catch(e){ /* ignore */ }
+    return;
+  }
+  await dbDelete('documents', id);
+}
+
+/* ====================================================================
+   STATE & HELPERS
+   ==================================================================== */
+let routes = [];
+let loads = [];
+let pendingDocFiles = []; // {dataUrl, name, type}
+
+function fmtMoney(n){ return '$' + (Number(n)||0).toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2}); }
+function fmtMiles(n){ return (Number(n)||0).toLocaleString() + ' mi'; }
+function fmtDate(d){
+  if(!d) return '';
+  const dt = new Date(d + 'T00:00:00');
+  return dt.toLocaleDateString(undefined, {month:'short', day:'numeric', year:'numeric'});
+}
+function fmtDateShort(d){
+  if(!d) return '';
+  const dt = new Date(d + 'T00:00:00');
+  return dt.toLocaleDateString(undefined, {month:'short', day:'numeric'});
+}
+function todayStr(){
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function toDateStr(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function addDays(dateStr, n){
+  const d = new Date(dateStr+'T00:00:00');
+  d.setDate(d.getDate()+n);
+  return toDateStr(d);
+}
+function getWeekStart(dateStr){
+  const d = new Date(dateStr+'T00:00:00');
+  const day = d.getDay();
+  d.setDate(d.getDate() - day);
+  return toDateStr(d);
+}
+function computePayDate(weekStartStr){
+  return addDays(weekStartStr, 5 + 14);
+}
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(showToast._tm);
+  showToast._tm = setTimeout(()=> t.classList.remove('show'), 1800);
+}
+function fileToDataUrl(file){
+  return new Promise((resolve,reject)=>{
+    const r = new FileReader();
+    r.onload = ()=> resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+function escapeHtml(str){
+  if(str == null) return '';
+  return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ====================================================================
+   TABS
+   ==================================================================== */
+document.getElementById('printPageBtn').addEventListener('click', ()=>{
+  window.print();
+});
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('view-' + btn.dataset.view).classList.add('active');
+    if(btn.dataset.view === 'history') renderHistory();
+    if(btn.dataset.view === 'log') renderQuickStats();
+    if(btn.dataset.view === 'settings'){ renderSettingsStats(); updateCloudUI(); }
+    if(btn.dataset.view === 'pay') renderPay();
+    if(btn.dataset.view === 'dashboard') renderDashboard();
+  });
+});
+
+/* ====================================================================
+   ROUTES
+   ==================================================================== */
+async function loadRoutesFromDB(){
+  routes = await dbGetAll('routes');
+  routes.sort((a,b)=> (a.number||'').localeCompare(b.number||'', undefined, {numeric:true}));
+  renderRouteSelect();
+  renderRoutesList();
+}
+function renderRouteSelect(){
+  const sel = document.getElementById('logRoute');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Select a saved route…</option>' +
+    routes.map(r => `<option value="${r.id}">${escapeHtml(r.number)}</option>`).join('') +
+    '<option value="__new__">+ New route name…</option>';
+  if(current) sel.value = current;
+}
+document.getElementById('logRoute').addEventListener('change', (e)=>{
+  const val = e.target.value;
+  if(val === '__new__'){
+    document.querySelectorAll('.tab-btn')[2].click();
+    showToast('Add the new route below');
+    e.target.value = '';
+    return;
+  }
+  const route = routes.find(r => String(r.id) === val);
+  if(route){
+    document.getElementById('logMiles').value = route.miles ?? '';
+    document.getElementById('logPay').value = route.pay ?? '';
+  }
+});
+function renderRoutesList(){
+  const el = document.getElementById('routesList');
+  if(routes.length === 0){
+    el.innerHTML = '<div class="empty">No saved routes yet.<br>Add one above — once saved, picking that route name on the Log Load tab will auto-fill miles &amp; pay.</div>';
+    return;
+  }
+  el.innerHTML = routes.map(r => `
+    <div class="route-chip">
+      <div>
+        <div class="num">${escapeHtml(r.number)}</div>
+        <div class="meta">${fmtMiles(r.miles)} · ${fmtMoney(r.pay)}${r.notes ? ' · ' + escapeHtml(r.notes) : ''}</div>
+      </div>
+      <div class="actions">
+        <button class="icon-btn" onclick="editRoute('${r.id}')">✏️</button>
+        <button class="icon-btn" onclick="deleteRoute('${r.id}')">🗑️</button>
+      </div>
+    </div>
+  `).join('');
+}
+document.getElementById('saveRouteBtn').addEventListener('click', async ()=>{
+  const number = document.getElementById('routeNumber').value.trim();
+  const miles = parseFloat(document.getElementById('routeMiles').value) || 0;
+  const pay = parseFloat(document.getElementById('routePay').value) || 0;
+  const notes = document.getElementById('routeNotes').value.trim();
+  if(!number){ showToast('Enter a route name'); return; }
+
+  const editingId = document.getElementById('routeEditingId').value;
+  if(editingId){
+    const existing = routes.find(r => String(r.id) === String(editingId));
+    await updateRouteRec({id: existing ? existing.id : editingId, number, miles, pay, notes});
+    showToast('Route updated');
+  } else {
+    const dup = routes.find(r => r.number.toLowerCase() === number.toLowerCase());
+    if(dup){ showToast('That route name already exists'); return; }
+    await addRoute({number, miles, pay, notes});
+    showToast('Route saved');
+  }
+  resetRouteForm();
+  if(!fbUser){ await loadRoutesFromDB(); }
+});
+window.editRoute = function(id){
+  const r = routes.find(x => String(x.id) === String(id));
+  if(!r) return;
+  document.getElementById('routeEditingId').value = r.id;
+  document.getElementById('routeNumber').value = r.number;
+  document.getElementById('routeMiles').value = r.miles;
+  document.getElementById('routePay').value = r.pay;
+  document.getElementById('routeNotes').value = r.notes || '';
+  document.getElementById('cancelRouteEditBtn').style.display = 'block';
+  document.getElementById('saveRouteBtn').textContent = 'Update Route';
+  window.scrollTo({top:0, behavior:'smooth'});
+};
+document.getElementById('cancelRouteEditBtn').addEventListener('click', resetRouteForm);
+function resetRouteForm(){
+  document.getElementById('routeEditingId').value = '';
+  document.getElementById('routeNumber').value = '';
+  document.getElementById('routeMiles').value = '';
+  document.getElementById('routePay').value = '';
+  document.getElementById('routeNotes').value = '';
+  document.getElementById('cancelRouteEditBtn').style.display = 'none';
+  document.getElementById('saveRouteBtn').textContent = 'Save Route';
+}
+window.deleteRoute = async function(id){
+  const r = routes.find(x => String(x.id) === String(id));
+  if(!r){ showToast('Could not find that route'); return; }
+  if(!confirm('Delete this route? Past loads logged under it are kept.')) return;
+  await removeRoute(r.id);
+  if(!fbUser){ await loadRoutesFromDB(); }
+  showToast('Route deleted');
+};
+
+/* ====================================================================
+   DOCUMENT ATTACH (pending, before save)
+   ==================================================================== */
+async function handleFiles(fileList){
+  for(const file of fileList){
+    const dataUrl = await fileToDataUrl(file);
+    pendingDocFiles.push({name:file.name, type:file.type, dataUrl});
+  }
+  renderPendingDocs();
+}
+document.getElementById('captureInput').addEventListener('change', (e)=>{ handleFiles(e.target.files); e.target.value=''; });
+document.getElementById('uploadInput').addEventListener('change', (e)=>{ handleFiles(e.target.files); e.target.value=''; });
+function renderPendingDocs(){
+  const el = document.getElementById('pendingDocs');
+  el.innerHTML = pendingDocFiles.map((d,i)=>{
+    if(d.type.startsWith('image/')) return `<div class="pending-doc"><img src="${d.dataUrl}"><button class="rm" onclick="removePendingDoc(${i})">×</button></div>`;
+    return `<div class="pending-doc"><div class="pdfchip">PDF</div><button class="rm" onclick="removePendingDoc(${i})">×</button></div>`;
+  }).join('');
+}
+window.removePendingDoc = function(i){ pendingDocFiles.splice(i,1); renderPendingDocs(); };
+
+/* ====================================================================
+   SAVE LOAD
+   ==================================================================== */
+document.getElementById('logDate').value = todayStr();
+document.getElementById('saveLoadBtn').addEventListener('click', async ()=>{
+  const routeSel = document.getElementById('logRoute');
+  const route = routes.find(r => String(r.id) === routeSel.value);
+  if(!route){ showToast('Select a route'); return; }
+
+  const loadNumber = document.getElementById('logLoadNumber').value.trim();
+  const date = document.getElementById('logDate').value || todayStr();
+  const miles = parseFloat(document.getElementById('logMiles').value) || 0;
+  const pay = parseFloat(document.getElementById('logPay').value) || 0;
+  const notes = document.getElementById('logNotes').value.trim();
+
+  const savedLoad = await addLoad({routeId: route.id, routeNumber: route.number, loadNumber, date, miles, pay, notes});
+  for(const doc of pendingDocFiles){
+    await addDocument({loadId: savedLoad.id, name:doc.name, type:doc.type, dataUrl:doc.dataUrl});
+  }
+
+  document.getElementById('logRoute').value = '';
+  document.getElementById('logLoadNumber').value = '';
+  document.getElementById('logMiles').value = '';
+  document.getElementById('logPay').value = '';
+  document.getElementById('logNotes').value = '';
+  document.getElementById('logDate').value = todayStr();
+  pendingDocFiles = [];
+  renderPendingDocs();
+
+  if(!fbUser){ await loadLoadsFromDB(); }
+  renderQuickStats();
+  showToast('Load saved ✓');
+});
+
+/* ====================================================================
+   LOADS / HISTORY
+   ==================================================================== */
+async function loadLoadsFromDB(){
+  loads = await dbGetAll('loads');
+  loads.sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+}
+function computeStats(list){
+  const totalMiles = list.reduce((s,l)=> s + (Number(l.miles)||0), 0);
+  const totalPay = list.reduce((s,l)=> s + (Number(l.pay)||0), 0);
+  return {count:list.length, totalMiles, totalPay};
+}
+function renderQuickStats(){
+  const now = new Date();
+  const ym = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
+  const thisMonth = loads.filter(l => l.date && l.date.startsWith(ym));
+  const s = computeStats(thisMonth);
+  document.getElementById('quickStats').innerHTML = `
+    <div class="stat"><div class="v">${s.count}</div><div class="l">Loads (mo.)</div></div>
+    <div class="stat"><div class="v">${Math.round(s.totalMiles)}</div><div class="l">Miles (mo.)</div></div>
+    <div class="stat"><div class="v">${fmtMoney(s.totalPay)}</div><div class="l">Pay (mo.)</div></div>
+  `;
+}
+let historyDocsCache = {}; // loadId -> docs[]
+async function renderHistory(){
+  const search = document.getElementById('historySearch').value.trim().toLowerCase();
+  const filtered = search ? loads.filter(l =>
+    (l.routeNumber||'').toLowerCase().includes(search) || (l.loadNumber||'').toLowerCase().includes(search)
+  ) : loads;
+
+  const s = computeStats(loads);
+  document.getElementById('historyStats').innerHTML = `
+    <div class="stat"><div class="v">${s.count}</div><div class="l">Total Loads</div></div>
+    <div class="stat"><div class="v">${Math.round(s.totalMiles)}</div><div class="l">Total Miles</div></div>
+    <div class="stat"><div class="v">${fmtMoney(s.totalPay)}</div><div class="l">Total Pay</div></div>
+  `;
+
+  const el = document.getElementById('historyList');
+  if(filtered.length === 0){
+    el.innerHTML = '<div class="empty">No loads logged yet.<br>Head to the Log Load tab to add your first one.</div>';
+    return;
+  }
+
+  const allDocs = fbUser ? cloudDocuments : await dbGetAll('documents');
+  historyDocsCache = {};
+  allDocs.forEach(d=>{
+    if(!historyDocsCache[d.loadId]) historyDocsCache[d.loadId] = [];
+    historyDocsCache[d.loadId].push(d);
+  });
+
+  el.innerHTML = filtered.map(l => {
+    const docs = historyDocsCache[l.id] || [];
+    const docsHtml = docs.map(d => {
+      const src = d.url || d.dataUrl;
+      return (d.type && d.type.startsWith('image/'))
+        ? `<img class="doc-thumb" src="${src}" onclick="viewDoc('${d.id}')">`
+        : `<div class="doc-thumb pdf" onclick="viewDoc('${d.id}')">PDF</div>`;
+    }).join('');
+    return `
+      <div class="load-card">
+        <div class="load-top">
+          <div>
+            <div class="route">${escapeHtml(l.routeNumber)}${l.loadNumber ? ` <span class="loadnum">#${escapeHtml(l.loadNumber)}</span>` : ''}</div>
+            <div class="date">${fmtDate(l.date)}</div>
+          </div>
+          <div class="pay">${fmtMoney(l.pay)}</div>
+        </div>
+        <div class="load-mid">
+          <span>🛣️ ${fmtMiles(l.miles)}</span>
+          ${docs.length ? `<span>📎 ${docs.length} doc${docs.length>1?'s':''}</span>` : ''}
+        </div>
+        ${l.notes ? `<div class="load-notes">"${escapeHtml(l.notes)}"</div>` : ''}
+        ${docsHtml ? `<div class="docs-row">${docsHtml}</div>` : ''}
+        <div class="load-actions">
+          <button class="btn btn-danger btn-small" onclick="deleteLoad('${l.id}')">Delete</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+document.getElementById('historySearch').addEventListener('input', renderHistory);
+window.deleteLoad = async function(id){
+  const load = loads.find(x => String(x.id) === String(id));
+  if(!load){ showToast('Could not find that load'); return; }
+  if(!confirm('Delete this load and its attached documents?')) return;
+  const docs = historyDocsCache[id] || [];
+  for(const d of docs){ await removeDocument(d.id); }
+  await removeLoad(load.id);
+  if(!fbUser){ await loadLoadsFromDB(); renderHistory(); }
+  renderQuickStats();
+  showToast('Load deleted');
+};
+function downloadFile(url, filename){
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || 'file';
+  a.target = '_blank';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+function printImageUrl(url, title){
+  const w = window.open('', '_blank');
+  if(!w){ showToast('Allow pop-ups to print'); return; }
+  w.document.write(`<!DOCTYPE html><html><head><title>${escapeHtml(title||'Print')}</title>
+<style>html,body{margin:0;padding:0;} img{max-width:100%; display:block; margin:0 auto;} @media print{ img{width:100%;} }</style>
+</head><body><img src="${url}" onload="window.focus(); window.print();"></body></html>`);
+  w.document.close();
+}
+window.viewDoc = async function(docId){
+  let doc = null;
+  for(const list of Object.values(historyDocsCache)){
+    const found = list.find(d => String(d.id) === String(docId));
+    if(found){ doc = found; break; }
+  }
+  if(!doc && !fbUser) doc = await dbGet('documents', docId).catch(()=>null);
+  if(!doc) return;
+  const src = doc.url || doc.dataUrl;
+  const name = doc.name || 'document';
+  const isImage = doc.type && doc.type.startsWith('image/');
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  bg.innerHTML = `
+    <div class="modal">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <strong style="font-size:14px;">${escapeHtml(name)}</strong>
+        <button class="icon-btn" style="font-size:22px;" id="closeModalBtn">×</button>
+      </div>
+      ${isImage
+        ? `<img src="${src}">`
+        : `<div class="empty" style="padding:24px 0;">📄 PDF document<br>Use the buttons below to open, print, or download it.</div>`}
+      <div class="row2" style="margin-top:12px;">
+        <button class="btn btn-secondary" id="printDocBtn">🖨️ Print</button>
+        <button class="btn btn-secondary" id="downloadDocBtn">⬇️ Download</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(bg);
+  bg.addEventListener('click', (e)=>{ if(e.target === bg) bg.remove(); });
+  bg.querySelector('#closeModalBtn').addEventListener('click', ()=> bg.remove());
+  bg.querySelector('#printDocBtn').addEventListener('click', ()=>{
+    if(isImage) printImageUrl(src, name);
+    else window.open(src, '_blank');
+  });
+  bg.querySelector('#downloadDocBtn').addEventListener('click', ()=> downloadFile(src, name));
+};
+
+/* ====================================================================
+   PAY — weekly breakdown with 2-week pay lag
+   ==================================================================== */
+function groupLoadsByWeek(list){
+  const map = {};
+  list.forEach(l=>{
+    if(!l.date) return;
+    const ws = getWeekStart(l.date);
+    if(!map[ws]) map[ws] = [];
+    map[ws].push(l);
+  });
+  return map;
+}
+function renderPay(){
+  const map = groupLoadsByWeek(loads);
+  const weekStarts = Object.keys(map).sort((a,b)=> b.localeCompare(a));
+  const today = todayStr();
+  const currentWeekStart = getWeekStart(today);
+
+  let nextCheck = null;
+  weekStarts.forEach(ws=>{
+    const payDate = computePayDate(ws);
+    if(payDate >= today){
+      if(!nextCheck || payDate < nextCheck.payDate){
+        nextCheck = {weekStart: ws, payDate, stats: computeStats(map[ws])};
+      }
+    }
+  });
+
+  let html = '';
+  if(nextCheck){
+    const weekEnd = addDays(nextCheck.weekStart, 6);
+    html += `
+      <div class="card paycheck-card" style="cursor:pointer;" onclick="viewWeekLoads('${nextCheck.weekStart}')">
+        <div class="section-title">Next Paycheck</div>
+        <div class="paycheck-amt">${fmtMoney(nextCheck.stats.totalPay)}</div>
+        <div class="paycheck-sub">
+          For loads run ${fmtDateShort(nextCheck.weekStart)} – ${fmtDateShort(weekEnd)} (${nextCheck.stats.count} load${nextCheck.stats.count===1?'':'s'}, ${fmtMiles(nextCheck.stats.totalMiles)})<br>
+          Expected pay date: <strong style="color:var(--text);">${fmtDate(nextCheck.payDate)}</strong><br>
+          <span style="color:var(--accent);">Tap to view these loads →</span>
+        </div>
+      </div>`;
+  } else {
+    html += `<div class="card"><div class="empty" style="padding:12px 0;">No upcoming paycheck yet — log a load to see it here.</div></div>`;
+  }
+
+  html += `<div class="section-title">Every Work Week</div>`;
+  if(weekStarts.length === 0){
+    html += `<div class="empty">No loads logged yet.</div>`;
+  } else {
+    html += weekStarts.map(ws=>{
+      const weekEnd = addDays(ws, 6);
+      const payDate = computePayDate(ws);
+      const stats = computeStats(map[ws]);
+      const isCurrent = ws === currentWeekStart;
+      const isPaid = payDate < today;
+      let badge;
+      if(isCurrent) badge = '<span class="badge progress">In progress</span>';
+      else if(isPaid) badge = '<span class="badge paid">Paid</span>';
+      else badge = '<span class="badge upcoming">Upcoming</span>';
+      return `
+        <div class="load-card" style="cursor:pointer;" onclick="viewWeekLoads('${ws}')">
+          <div class="load-top">
+            <div>
+              <div class="route">${fmtDateShort(ws)} – ${fmtDateShort(weekEnd)}</div>
+              <div class="date">${stats.count} load${stats.count===1?'':'s'} · ${fmtMiles(stats.totalMiles)}</div>
+            </div>
+            <div class="pay">${fmtMoney(stats.totalPay)}</div>
+          </div>
+          <div class="load-mid">
+            ${badge}
+            <span>Pay date: ${fmtDate(payDate)}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  document.getElementById('payList').innerHTML = html;
+}
+
+window.viewWeekLoads = async function(weekStart){
+  const allDocs = fbUser ? cloudDocuments : await dbGetAll('documents');
+  historyDocsCache = {};
+  allDocs.forEach(d=>{
+    if(!historyDocsCache[d.loadId]) historyDocsCache[d.loadId] = [];
+    historyDocsCache[d.loadId].push(d);
+  });
+
+  const map = groupLoadsByWeek(loads);
+  const weekLoads = (map[weekStart] || []).slice().sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+  const weekEnd = addDays(weekStart, 6);
+  const payDate = computePayDate(weekStart);
+  const stats = computeStats(weekLoads);
+
+  const loadsHtml = weekLoads.length ? weekLoads.map(l=>{
+    const docs = historyDocsCache[l.id] || [];
+    const docsHtml = docs.map(d=>{
+      const src = d.url || d.dataUrl;
+      return (d.type && d.type.startsWith('image/'))
+        ? `<img class="doc-thumb" src="${src}" onclick="viewDoc('${d.id}')">`
+        : `<div class="doc-thumb pdf" onclick="viewDoc('${d.id}')">PDF</div>`;
+    }).join('');
+    return `
+      <div class="load-card">
+        <div class="load-top">
+          <div>
+            <div class="route">${escapeHtml(l.routeNumber)}${l.loadNumber ? ` <span class="loadnum">#${escapeHtml(l.loadNumber)}</span>` : ''}</div>
+            <div class="date">${fmtDate(l.date)}</div>
+          </div>
+          <div class="pay">${fmtMoney(l.pay)}</div>
+        </div>
+        <div class="load-mid">
+          <span>🛣️ ${fmtMiles(l.miles)}</span>
+          ${docs.length ? `<span>📎 ${docs.length} doc${docs.length>1?'s':''}</span>` : ''}
+        </div>
+        ${l.notes ? `<div class="load-notes">"${escapeHtml(l.notes)}"</div>` : ''}
+        ${docsHtml ? `<div class="docs-row">${docsHtml}</div>` : ''}
+      </div>
+    `;
+  }).join('') : '<div class="empty">No loads found for this week.</div>';
+
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  bg.innerHTML = `
+    <div class="modal" style="max-width:480px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <strong style="font-size:15px;">${fmtDateShort(weekStart)} – ${fmtDateShort(weekEnd)}</strong>
+        <button class="icon-btn" style="font-size:22px;" id="closeModalBtn">×</button>
+      </div>
+      <div class="helptext" style="margin:6px 0 12px;">
+        Pay date: <strong style="color:var(--text);">${fmtDate(payDate)}</strong> ·
+        ${stats.count} load${stats.count===1?'':'s'} · ${fmtMiles(stats.totalMiles)} ·
+        <strong style="color:var(--green);">${fmtMoney(stats.totalPay)}</strong>
+      </div>
+      ${loadsHtml}
+    </div>
+  `;
+  document.body.appendChild(bg);
+  bg.addEventListener('click', (e)=>{ if(e.target === bg) bg.remove(); });
+  bg.querySelector('#closeModalBtn').addEventListener('click', ()=> bg.remove());
+};
+
+/* ====================================================================
+   DASHBOARD — monthly breakdown of routes & pay
+   ==================================================================== */
+function fmtMonthLabel(ym){
+  const [y,m] = ym.split('-').map(Number);
+  const d = new Date(y, m-1, 1);
+  return d.toLocaleDateString(undefined, {month:'long', year:'numeric'});
+}
+function renderDashboard(){
+  const el = document.getElementById('dashboardContent');
+  if(loads.length === 0){
+    el.innerHTML = '<div class="empty">No loads logged yet.<br>Once you start logging loads, your monthly breakdown will show up here.</div>';
+    return;
+  }
+
+  const all = computeStats(loads);
+  const routeCount = new Set(loads.map(l=>l.routeNumber)).size;
+
+  const byMonth = {};
+  loads.forEach(l=>{
+    if(!l.date) return;
+    const ym = l.date.slice(0,7);
+    if(!byMonth[ym]) byMonth[ym] = [];
+    byMonth[ym].push(l);
+  });
+  const months = Object.keys(byMonth).sort((a,b)=> b.localeCompare(a));
+
+  let html = `
+    <div class="summary-grid">
+      <div class="stat"><div class="v">${all.count}</div><div class="l">Total Loads</div></div>
+      <div class="stat"><div class="v">${Math.round(all.totalMiles)}</div><div class="l">Total Miles</div></div>
+      <div class="stat"><div class="v">${fmtMoney(all.totalPay)}</div><div class="l">Total Pay</div></div>
+    </div>
+    <div class="helptext" style="margin:-6px 0 14px;">Across ${routeCount} route${routeCount===1?'':'s'} and ${months.length} month${months.length===1?'':'s'} of activity.</div>
+  `;
+
+  html += months.map(ym=>{
+    const monthLoads = byMonth[ym];
+    const stats = computeStats(monthLoads);
+    const byRoute = {};
+    monthLoads.forEach(l=>{
+      const key = l.routeNumber || '(no route)';
+      if(!byRoute[key]) byRoute[key] = {count:0, miles:0, pay:0};
+      byRoute[key].count++;
+      byRoute[key].miles += Number(l.miles)||0;
+      byRoute[key].pay += Number(l.pay)||0;
+    });
+    const routeRows = Object.entries(byRoute)
+      .sort((a,b)=> b[1].pay - a[1].pay)
+      .map(([name, r])=> `
+        <div class="route-chip">
+          <div>
+            <div class="num">${escapeHtml(name)}</div>
+            <div class="meta">${r.count} load${r.count===1?'':'s'} · ${fmtMiles(r.miles)}</div>
+          </div>
+          <div style="font-weight:700; color:var(--green);">${fmtMoney(r.pay)}</div>
+        </div>
+      `).join('');
+
+    return `
+      <div class="card">
+        <div class="section-title">${fmtMonthLabel(ym)}</div>
+        <div class="summary-grid">
+          <div class="stat"><div class="v">${stats.count}</div><div class="l">Loads</div></div>
+          <div class="stat"><div class="v">${Math.round(stats.totalMiles)}</div><div class="l">Miles</div></div>
+          <div class="stat"><div class="v">${fmtMoney(stats.totalPay)}</div><div class="l">Pay</div></div>
+        </div>
+        ${routeRows}
+      </div>
+    `;
+  }).join('');
+
+  el.innerHTML = html;
+}
+
+/* ====================================================================
+   SETTINGS — CLOUD SYNC + BACKUP & RESTORE
+   ==================================================================== */
+document.getElementById('firestoreRulesPreview').textContent = FIRESTORE_RULES;
+document.getElementById('storageRulesPreview').textContent = STORAGE_RULES;
+document.getElementById('copyFirestoreRulesBtn').addEventListener('click', ()=>{
+  navigator.clipboard.writeText(FIRESTORE_RULES).then(()=> showToast('Firestore rules copied ✓')).catch(()=> showToast('Could not copy — select the text manually'));
+});
+document.getElementById('copyStorageRulesBtn').addEventListener('click', ()=>{
+  navigator.clipboard.writeText(STORAGE_RULES).then(()=> showToast('Storage rules copied ✓')).catch(()=> showToast('Could not copy — select the text manually'));
+});
+document.getElementById('saveFbConfigBtn').addEventListener('click', ()=>{
+  const text = document.getElementById('fbConfigInput').value.trim();
+  const config = parseFirebaseConfig(text);
+  if(!config){ showToast("Couldn't read that — paste the whole config block"); return; }
+  localStorage.setItem('firebaseConfig', JSON.stringify(config));
+  showToast('Config saved — connecting…');
+  initFirebaseFromSaved();
+});
+document.getElementById('googleSignInBtn').addEventListener('click', async ()=>{
+  if(!fbAuth){ showToast('Save your config first'); return; }
+  try{
+    const provider = new firebase.auth.GoogleAuthProvider();
+    await fbAuth.signInWithPopup(provider);
+  }catch(e){
+    showToast('Sign-in failed or was cancelled');
+  }
+});
+document.getElementById('fbSignOutBtn').addEventListener('click', async ()=>{
+  if(fbAuth) await fbAuth.signOut();
+});
+
+function renderSettingsStats(){
+  const el = document.getElementById('settingsStats');
+  el.innerHTML = `📦 On this device: <strong>${routes.length}</strong> route${routes.length===1?'':'s'}, <strong>${loads.length}</strong> load${loads.length===1?'':'s'}${fbUser ? ' (synced from cloud)' : ' saved locally'}.`;
+}
+
+document.getElementById('exportBtn').addEventListener('click', async ()=>{
+  const allRoutes = routes.length ? routes : await dbGetAll('routes');
+  const allLoads = loads.length ? loads : await dbGetAll('loads');
+  const allDocs = fbUser ? cloudDocuments : await dbGetAll('documents');
+  const backup = {
+    app: 'load-tracker',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    routes: allRoutes,
+    loads: allLoads,
+    documents: allDocs
+  };
+  const json = JSON.stringify(backup);
+  const blob = new Blob([json], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `load-tracker-backup-${todayStr()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(()=> URL.revokeObjectURL(url), 4000);
+  showToast('Backup file ready ✓');
+});
+
+document.getElementById('restoreInput').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  try{
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if(!data || !Array.isArray(data.routes) || !Array.isArray(data.loads)){
+      showToast("That file doesn't look like a Load Tracker backup");
+      e.target.value = '';
+      return;
+    }
+    if(fbUser){
+      const base = fbDb.collection('users').doc(fbUser.uid);
+      for(const r of data.routes){ const {id, ...rest} = r; await base.collection('routes').doc(id).set(rest, {merge:true}); }
+      for(const l of data.loads){ const {id, ...rest} = l; await base.collection('loads').doc(id).set(rest, {merge:true}); }
+    } else {
+      for(const r of data.routes) await dbPut('routes', r);
+      for(const l of data.loads) await dbPut('loads', l);
+      for(const d of (data.documents||[])) await dbPut('documents', d);
+      await loadRoutesFromDB();
+      await loadLoadsFromDB();
+    }
+    renderQuickStats();
+    renderSettingsStats();
+    showToast('Restored ✓');
+  }catch(err){
+    showToast('Could not read that file');
+  }
+  e.target.value = '';
+});
+
+/* ====================================================================
+   INIT
+   ==================================================================== */
+(async function init(){
+  await openDB();
+  await loadRoutesFromDB();
+  await loadLoadsFromDB();
+  renderQuickStats();
+  renderSettingsStats();
+  initFirebaseFromSaved();
+})();
+</script>
+</body>
+</html>
