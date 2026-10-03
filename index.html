@@ -391,6 +391,19 @@
           </div>
         </div>
 
+        <div class="subcard">
+          <div class="section-title" style="cursor:pointer;" onclick="toggleSubcard('datelookup')">
+            📅 Look Up a Date <span class="subcard-chevron no-print" id="subcardChevron-datelookup">▾</span>
+          </div>
+          <div class="subcard-body" id="subcardBody-datelookup">
+            <p class="helptext" style="margin:0 0 8px;">Pick any day to see every route you ran on it.</p>
+            <label for="dateLookupInput">Date</label>
+            <input type="date" id="dateLookupInput">
+            <div class="summary-grid" id="dateLookupStats" style="margin-top:12px;"></div>
+            <div id="dateLookupResults" style="margin-top:10px;"></div>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -639,14 +652,14 @@ function attachCloudListeners(uid){
     loads = snap.docs.map(d => ({id: d.id, ...d.data()}));
     loads.sort((a,b)=> (b.date||'').localeCompare(a.date||''));
     renderQuickStats();
-    if(isDashboardSectionOpen('routeshistory')) renderHistory();
+    if(isDashboardSectionOpen('routeshistory')){ renderHistory(); renderDateLookup(); }
     if(isDashboardSectionOpen('payreports')){ renderPay(); renderReports(); }
     if(isDashboardSectionOpen('addload')) renderDocumentsSection();
     if(document.getElementById('view-dashboard').classList.contains('active')){ renderDashboard(); renderLogLoadSettlementPicker(); }
   }, ()=> showToast('Cloud sync error (loads)'));
   unsubDocs = base.collection('documents').onSnapshot(snap=>{
     cloudDocuments = snap.docs.map(d => ({id: d.id, ...d.data()}));
-    if(isDashboardSectionOpen('routeshistory')) renderHistory();
+    if(isDashboardSectionOpen('routeshistory')){ renderHistory(); renderDateLookup(); }
     if(isDashboardSectionOpen('payreports')) renderPay();
     if(isDashboardSectionOpen('addload')) renderDocumentsSection();
     if(document.getElementById('view-dashboard').classList.contains('active')) renderLogLoadSettlementDocs();
@@ -1041,7 +1054,7 @@ window.toggleSection = function(name){
     if(name === 'addload') renderDocumentsSection();
     if(name === 'payreports'){ renderPay(); renderReports(); }
     if(name === 'advances'){ renderAdvancesSection(); renderAdvancesReport(); }
-    if(name === 'routeshistory'){ renderRoutesList(); renderHistory(); }
+    if(name === 'routeshistory'){ renderRoutesList(); renderHistory(); renderDateLookup(); }
     if(name === 'settings') renderCustomizeControls();
   }
 };
@@ -1321,6 +1334,60 @@ async function renderHistory(){
   }).join('');
 }
 document.getElementById('historySearch').addEventListener('input', renderHistory);
+
+function renderDateLookup(){
+  const input = document.getElementById('dateLookupInput');
+  const statsEl = document.getElementById('dateLookupStats');
+  const resultsEl = document.getElementById('dateLookupResults');
+  if(!input || !statsEl || !resultsEl) return;
+  if(!input.value) input.value = todayStr();
+  const dateVal = input.value;
+
+  const dayLoads = loads.filter(l => l.date === dateVal)
+    .slice().sort((a,b)=> (a.routeNumber||'').localeCompare(b.routeNumber||''));
+  const stats = computeStats(dayLoads);
+  statsEl.innerHTML = `
+    <div class="stat"><div class="v">${stats.count}</div><div class="l">Loads</div></div>
+    <div class="stat"><div class="v">${fmtMiles(stats.totalMiles)}</div><div class="l">Miles</div></div>
+    <div class="stat"><div class="v">${fmtMoney(stats.totalPay)}</div><div class="l">Pay</div></div>
+  `;
+
+  if(dayLoads.length === 0){
+    resultsEl.innerHTML = `<div class="empty">No routes logged on ${fmtDate(dateVal)}.</div>`;
+    return;
+  }
+
+  resultsEl.innerHTML = dayLoads.map(l => {
+    const docs = historyDocsCache[l.id] || [];
+    const docsHtml = docs.map(d => {
+      const src = d.url || d.dataUrl;
+      return (d.type && d.type.startsWith('image/'))
+        ? `<img class="doc-thumb" src="${src}" onclick="event.stopPropagation(); viewDoc('${d.id}')">`
+        : `<div class="doc-thumb pdf" onclick="event.stopPropagation(); viewDoc('${d.id}')">PDF</div>`;
+    }).join('');
+    const weekStart = l.date ? getWeekStart(l.date) : null;
+    return `
+      <div class="load-card" style="cursor:pointer;" onclick="openLoadDetail('${l.id}')">
+        <div class="load-top">
+          <div>
+            <div class="route">${escapeHtml(l.routeNumber)}${l.loadNumber ? ` <span class="loadnum">#${escapeHtml(l.loadNumber)}</span>` : ''}</div>
+            <div class="date">${fmtDate(l.date)}</div>
+          </div>
+          <div class="pay">${fmtMoney(l.pay)}</div>
+        </div>
+        <div class="load-mid">
+          <span>🛣️ ${fmtMiles(l.miles)}</span>
+          ${l.bolNumber ? `<span>📋 BOL #${escapeHtml(l.bolNumber)}</span>` : ''}
+          ${docs.length ? `<span>📎 ${docs.length} doc${docs.length>1?'s':''}</span>` : ''}
+          ${weekStart ? `<span class="no-print" style="color:var(--accent); cursor:pointer;" onclick="event.stopPropagation(); viewWeekLoads('${weekStart}')">View paycheck →</span>` : ''}
+        </div>
+        ${l.notes ? `<div class="load-notes">"${escapeHtml(l.notes)}"</div>` : ''}
+        ${docsHtml ? `<div class="docs-row">${docsHtml}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+document.getElementById('dateLookupInput').addEventListener('input', renderDateLookup);
 window.addFilesToLoad = function(loadId, useCapture, onDone){
   const input = document.createElement('input');
   input.type = 'file';
@@ -1339,7 +1406,7 @@ window.addFilesToLoad = function(loadId, useCapture, onDone){
       await addDocument({loadId, name:file.name, type:file.type, dataUrl});
     }
     showToast('Files added ✓');
-    if(onDone) onDone(); else await renderHistory();
+    if(onDone) onDone(); else { await renderHistory(); renderDateLookup(); }
   });
   input.click();
 };
@@ -1353,6 +1420,7 @@ window.deleteLoad = async function(id){
   if(!fbUser){
     await loadLoadsFromDB();
     renderHistory();
+    renderDateLookup();
     if(document.getElementById('view-dashboard').classList.contains('active')) renderDashboard();
   }
   renderQuickStats();
@@ -1452,6 +1520,7 @@ window.openLoadDetail = async function(id){
     if(!fbUser){ await loadLoadsFromDB(); }
     bg.remove();
     renderHistory();
+    renderDateLookup();
     renderQuickStats();
     if(isDashboardSectionOpen('payreports')){ renderPay(); renderReports(); }
     showToast('Load updated ✓');
@@ -1529,7 +1598,7 @@ window.deleteAnyDoc = async function(id){
   await removeDocument(id);
   showToast('Document deleted');
   renderDocumentsSection();
-  if(isDashboardSectionOpen('routeshistory')) renderHistory();
+  if(isDashboardSectionOpen('routeshistory')){ renderHistory(); renderDateLookup(); }
   if(isDashboardSectionOpen('payreports')) renderPay();
 };
 document.getElementById('docsAddPhotoBtn').addEventListener('click', ()=>{
