@@ -27,10 +27,21 @@
   }
   header h1{margin:0; font-size:20px; font-weight:700;}
   header p{margin:2px 0 0; font-size:13px; color:var(--muted);}
-  main{padding:16px; max-width:1200px; margin:0 auto;}
-  #view-dashboard{display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:14px; align-items:start;}
-  #view-dashboard > .card{margin-bottom:0;}
-  @media (max-width:700px){ #view-dashboard{grid-template-columns:1fr !important;} }
+  main{padding:16px; max-width:760px; margin:0 auto;}
+  body{padding-bottom:96px;}
+  /* One "page" at a time: sections are opened from the bottom nav, so their own expand/collapse header is just a title. */
+  #view-dashboard > .card > .section-title[id^="sectionHeader-"]{pointer-events:none; font-size:15px; color:var(--text);}
+  [id^="chevron-"]{display:none !important;}
+  .bottom-nav{
+    position:fixed; left:0; right:0; bottom:0; z-index:40; display:flex; justify-content:space-around; gap:2px;
+    background:rgba(15,23,42,0.96); backdrop-filter:blur(10px); border-top:1px solid var(--border);
+    padding:6px 4px calc(6px + env(safe-area-inset-bottom));
+  }
+  .nav-btn{flex:1; background:none; color:var(--muted); padding:6px 2px; border-radius:10px; font-size:10px; font-weight:600;
+    display:flex; flex-direction:column; align-items:center; gap:2px; min-width:0;}
+  .nav-btn .ico{font-size:20px; line-height:1;}
+  .nav-btn.active{color:var(--text); background:var(--card2);}
+  .nav-btn.active .lbl{color:var(--accent);}
   .card{background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
     padding:16px; margin-bottom:14px; box-shadow:0 2px 12px rgba(0,0,0,0.25);}
   .subcard{background:var(--card2); border:1px solid var(--border); border-left:3px solid var(--accent);
@@ -178,19 +189,17 @@
   </div>
 </header>
 
-<div id="floatingGlance" class="floating-glance no-print" style="display:none;">
-  <div class="floating-glance-head" onclick="toggleFloatingGlance()">
-    <span>💰 Paychecks</span>
-    <span id="floatingGlanceChevron">▾</span>
-  </div>
-  <div id="floatingGlanceBody" class="floating-glance-body"></div>
-</div>
+<nav id="bottomNav" class="bottom-nav no-print"></nav>
 
 <main>
 
   <!-- HOME VIEW (everything lives here as clickable, collapsible boxes) -->
   <section id="view-dashboard" class="view active">
-    <div id="dashboardContent"></div>
+    <!-- HOME PAGE: paychecks on top, totals below -->
+    <div id="homePage">
+      <div id="homePaychecks"></div>
+      <div id="dashboardContent"></div>
+    </div>
 
     <!-- SECTION 1: ADD A LOAD (+ settlement upload + documents) -->
     <div class="card" id="sectionCard-addload">
@@ -420,14 +429,10 @@
             🎨 Customize Layout <span class="subcard-chevron no-print" id="subcardChevron-customize">▾</span>
           </div>
           <div class="subcard-body" id="subcardBody-customize">
-            <p class="helptext" style="margin:0 0 8px;">Reorder your 5 sections, choose how many boxes sit side by side, and change the app's background. If you're signed in below under Real-Time Cloud Sync, this syncs to every device automatically — otherwise it's saved just on this device.</p>
+            <p class="helptext" style="margin:0 0 8px;">Reorder the buttons on the bottom bar and change the app's background. If you're signed in below under Real-Time Cloud Sync, this syncs to every device automatically — otherwise it's saved just on this device.</p>
 
-            <label style="margin-top:4px;">Section order</label>
+            <label style="margin-top:4px;">Bottom button order</label>
             <div id="sectionOrderList"></div>
-
-            <label style="margin-top:14px;">Box layout</label>
-            <p class="helptext" style="margin:0 0 8px;">On a wide screen, "Auto" fits as many boxes per row as will comfortably fit. Pick a fixed number of columns to always arrange them that way. Phones always stack in a single column.</p>
-            <div id="gridColumnsRow" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
 
             <label style="margin-top:14px;">Background</label>
             <div id="bgPresetsRow" style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;"></div>
@@ -632,9 +637,11 @@ function detachCloudListeners(){
   if(unsubCustomize){ unsubCustomize(); unsubCustomize = null; }
 }
 
+let currentPage = 'home';
 function isDashboardSectionOpen(name){
   const dashEl = document.getElementById('view-dashboard');
   if(!dashEl || !dashEl.classList.contains('active')) return false;
+  if(currentPage !== name) return false;
   const body = document.getElementById('section-' + name);
   return !!body && body.style.display !== 'none';
 }
@@ -1050,13 +1057,47 @@ window.toggleSection = function(name){
   const isOpen = body.style.display !== 'none';
   body.style.display = isOpen ? 'none' : 'block';
   if(chevron) chevron.textContent = isOpen ? '▸ tap to expand' : '▾ tap to collapse';
-  if(!isOpen){
-    if(name === 'addload') renderDocumentsSection();
-    if(name === 'payreports'){ renderPay(); renderReports(); }
-    if(name === 'advances'){ renderAdvancesSection(); renderAdvancesReport(); }
-    if(name === 'routeshistory'){ renderRoutesList(); renderHistory(); renderDateLookup(); }
-    if(name === 'settings') renderCustomizeControls();
-  }
+  if(!isOpen) renderSectionByName(name);
+};
+function renderSectionByName(name){
+  if(name === 'addload') renderDocumentsSection();
+  if(name === 'payreports'){ renderPay(); renderReports(); }
+  if(name === 'advances'){ renderAdvancesSection(); renderAdvancesReport(); }
+  if(name === 'routeshistory'){ renderRoutesList(); renderHistory(); renderDateLookup(); }
+  if(name === 'settings') renderCustomizeControls();
+}
+
+/* Bottom-nav "pages": Home (paychecks) + one button per section. */
+const NAV_META = {
+  home:          {ico:'🏠', lbl:'Home'},
+  addload:       {ico:'➕', lbl:'Add Load'},
+  payreports:    {ico:'💵', lbl:'Pay'},
+  advances:      {ico:'💳', lbl:'Advances'},
+  routeshistory: {ico:'🗂️', lbl:'History'},
+  settings:      {ico:'⚙️', lbl:'Settings'},
+};
+function renderBottomNav(){
+  const nav = document.getElementById('bottomNav');
+  if(!nav) return;
+  const names = ['home'].concat(getSectionOrder());
+  nav.innerHTML = names.map(n => `
+    <button class="nav-btn ${currentPage===n ? 'active' : ''}" onclick="showPage('${n}')">
+      <span class="ico">${NAV_META[n].ico}</span><span class="lbl">${NAV_META[n].lbl}</span>
+    </button>`).join('');
+}
+window.showPage = function(name){
+  currentPage = name;
+  const home = document.getElementById('homePage');
+  if(home) home.style.display = (name === 'home') ? '' : 'none';
+  CUSTOMIZE_DEFAULT_ORDER.forEach(n => {
+    const card = document.getElementById('sectionCard-' + n);
+    const body = document.getElementById('section-' + n);
+    if(card) card.style.display = (n === name) ? '' : 'none';
+    if(body && n === name) body.style.display = 'block';
+  });
+  renderBottomNav();
+  if(name === 'home') renderDashboard(); else renderSectionByName(name);
+  window.scrollTo(0, 0);
 };
 
 // Every subcard header (inside any of the 5 sections) can be expanded/collapsed
@@ -1090,7 +1131,7 @@ function renderRouteSelect(){
 document.getElementById('logRoute').addEventListener('change', (e)=>{
   const val = e.target.value;
   if(val === '__new__'){
-    if(!isDashboardSectionOpen('routeshistory')) toggleSection('routeshistory');
+    if(currentPage !== 'routeshistory') showPage('routeshistory');
     document.getElementById('routeNumber').scrollIntoView({behavior:'smooth', block:'center'});
     showToast('Add the new route below');
     e.target.value = '';
@@ -2167,41 +2208,12 @@ function renderDashboard(){
   el.innerHTML = totalsHtml;
 }
 
+// Home page: the 3 paychecks live at the top of the main page.
 function renderFloatingGlance(){
-  const box = document.getElementById('floatingGlance');
-  if(!box) return;
-  if(loads.length === 0){
-    box.style.display = 'none';
-    return;
-  }
-  box.style.display = '';
-  const body = document.getElementById('floatingGlanceBody');
-  if(body && body.style.display !== 'none') body.innerHTML = buildThreeChecksHtml();
+  const el = document.getElementById('homePaychecks');
+  if(!el) return;
+  el.innerHTML = loads.length === 0 ? '' : buildThreeChecksHtml();
 }
-window.toggleFloatingGlance = function(){
-  const body = document.getElementById('floatingGlanceBody');
-  const chevron = document.getElementById('floatingGlanceChevron');
-  if(!body) return;
-  const collapsed = body.style.display !== 'none';
-  if(collapsed){
-    body.style.display = 'none';
-    if(chevron) chevron.textContent = '▸';
-  } else {
-    body.innerHTML = buildThreeChecksHtml();
-    body.style.display = '';
-    if(chevron) chevron.textContent = '▾';
-  }
-  localStorage.setItem('ltFloatingGlanceCollapsed', collapsed ? '1' : '0');
-};
-(function(){
-  const collapsed = localStorage.getItem('ltFloatingGlanceCollapsed') === '1';
-  if(collapsed){
-    const body = document.getElementById('floatingGlanceBody');
-    const chevron = document.getElementById('floatingGlanceChevron');
-    if(body) body.style.display = 'none';
-    if(chevron) chevron.textContent = '▸';
-  }
-})();
 
 /* ====================================================================
    JUMP MENU — quick navigation to any of the 4 sections
@@ -2240,14 +2252,7 @@ document.getElementById('jumpMenuBtn').addEventListener('click', showJumpMenu);
 
 window.jumpToSection = function(name){
   document.querySelectorAll('.modal-bg').forEach(m => m.remove());
-  const content = document.getElementById('section-' + name);
-  if(content && content.style.display === 'none'){
-    toggleSection(name);
-  }
-  const header = document.getElementById('sectionHeader-' + name);
-  if(header){
-    setTimeout(()=> header.scrollIntoView({behavior:'smooth', block:'start'}), 50);
-  }
+  showPage(name);
 };
 
 /* ====================================================================
@@ -2301,6 +2306,7 @@ function applySectionOrder(order){
     const el = document.getElementById('sectionCard-' + name);
     if(el) parent.appendChild(el);
   });
+  renderBottomNav();
 }
 function getBgColor(){
   return localStorage.getItem('ltBgColor') || CUSTOMIZE_DEFAULT_BG;
@@ -2327,9 +2333,7 @@ function saveGridColumns(val){
   }
 }
 function applyGridColumns(val){
-  const grid = document.getElementById('view-dashboard');
-  if(!grid) return;
-  grid.style.gridTemplateColumns = (val === 'auto') ? '' : `repeat(${val}, 1fr)`;
+  // Column layout no longer applies: each section is now its own page opened from the bottom bar.
 }
 function renderCustomizeControls(){
   const order = getSectionOrder();
@@ -2399,6 +2403,7 @@ document.getElementById('resetLayoutBtn').addEventListener('click', ()=>{
 applySectionOrder(getSectionOrder());
 applyBgColor(getBgColor());
 applyGridColumns(getGridColumns());
+showPage('home');
 
 /* ====================================================================
    REPORTS — weekly / monthly comparisons
