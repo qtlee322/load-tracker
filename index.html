@@ -2212,7 +2212,7 @@ function renderDashboard(){
 function renderFloatingGlance(){
   const el = document.getElementById('homePaychecks');
   if(!el) return;
-  el.innerHTML = loads.length === 0 ? '' : buildThreeChecksHtml();
+  el.innerHTML = '<div class="section-title" style="margin:0 0 10px; font-size:15px; color:var(--text);">💰 Paychecks</div>' + buildThreeChecksHtml();
 }
 
 /* ====================================================================
@@ -2705,6 +2705,28 @@ document.getElementById('restoreInput').addEventListener('change', async (e)=>{
 /* ====================================================================
    INIT
    ==================================================================== */
+/* ====================================================================
+   AUTO-UPDATE — when a newer version is live on the web, reload into it
+   ==================================================================== */
+const APP_VERSION = 'v31-2026-10-07';
+async function checkForAppUpdate(){
+  try{
+    if(!/^https?:/.test(location.protocol)) return;
+    const res = await fetch(location.pathname + '?_v=' + Date.now(), {cache:'no-store'});
+    if(!res.ok) return;
+    const text = await res.text();
+    const m = text.match(/const APP_VERSION = '([^']+)'/);
+    if(!m || m[1] === APP_VERSION) return;
+    if(sessionStorage.getItem('ltReloadedFor') === m[1]) return; // never loop
+    if(document.querySelector('.modal-bg')) return; // don't interrupt an open form; next check will catch it
+    sessionStorage.setItem('ltReloadedFor', m[1]);
+    showToast('Updating to the latest version…');
+    setTimeout(()=> location.reload(), 1200);
+  }catch(e){ /* offline — ignore */ }
+}
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) checkForAppUpdate(); });
+setTimeout(checkForAppUpdate, 3000);
+
 (async function init(){
   await openDB();
   await loadRoutesFromDB();
