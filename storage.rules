@@ -1,0 +1,16 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Uploaded documents live under users/{their uid}/. Only your Google account can read or write them.
+    match /users/{uid}/{allPaths=**} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == uid
+        && request.auth.token.email == "qtlee322@gmail.com"
+        && request.auth.token.email_verified == true;
+    }
+    // Everything else is closed.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
