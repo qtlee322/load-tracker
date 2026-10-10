@@ -1,0 +1,54 @@
+# Sends Load Tracker push notifications (paycheck preview, payday, weekly recap, reminders).
+# Runs twice a day; the script works out in Chicago time what's due and sends only that.
+# GitHub signs in to Google with Workload Identity Federation — no keys stored anywhere.
+name: Notifications
+
+on:
+  schedule:
+    - cron: '7 13 * * *'   # ~8 AM Chicago in summer (7 AM in winter) — morning messages
+    - cron: '7 0 * * *'    # ~7 PM Chicago in summer (6 PM in winter) — evening reminder
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'test = send a test push now · check = summary only · all = preview every message'
+        required: true
+        default: test
+        type: choice
+        options: [test, check, all, auto]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: notifications
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/757577143595/locations/global/workloadIdentityPools/github/providers/github-actions
+          service_account: github-deploy@load-tracker-18ce6.iam.gserviceaccount.com
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: .github/scripts/package-lock.json
+
+      - name: Install
+        working-directory: .github/scripts
+        run: npm ci --omit=dev --no-audit --no-fund
+
+      - name: Send notifications
+        working-directory: .github/scripts
+        env:
+          MODE: ${{ github.event.inputs.mode || 'auto' }}
+          GOOGLE_CLOUD_PROJECT: load-tracker-18ce6
+        run: node notify.mjs

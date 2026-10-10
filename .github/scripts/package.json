@@ -1,0 +1,10 @@
+{
+  "name": "load-tracker-notify",
+  "private": true,
+  "type": "module",
+  "description": "Scheduled push notifications for Load Tracker (run by .github/workflows/notify.yml)",
+  "dependencies": {
+    "firebase-admin": "^13.0.0",
+    "web-push": "^3.6.7"
+  }
+}
