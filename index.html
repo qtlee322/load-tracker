@@ -8,6 +8,9 @@
 <meta name="apple-mobile-web-app-title" content="Load Tracker">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0f172a">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <title>Load Tracker</title>
 <style>
   :root{
@@ -172,6 +175,17 @@
       max-width:100% !important; width:100% !important; max-height:none !important; overflow:visible !important; box-shadow:none !important;
     }
   }
+  .toggle-row{display:flex; gap:12px; align-items:flex-start; padding:10px 0; border-bottom:1px solid var(--border); cursor:pointer;}
+  .toggle-row:last-child{border-bottom:none;}
+  .toggle-row .t-text{flex:1;}
+  .toggle-row .t-title{font-weight:600; font-size:14px;}
+  .toggle-row .t-sub{color:var(--muted); font-size:12px; margin-top:2px; line-height:1.35;}
+  .switch{position:relative; width:46px; height:28px; flex:0 0 46px; margin-top:2px;}
+  .switch input{opacity:0; width:0; height:0; position:absolute;}
+  .switch .slider{position:absolute; inset:0; background:var(--border); border-radius:28px; transition:.2s;}
+  .switch .slider:before{content:''; position:absolute; width:22px; height:22px; left:3px; top:3px; background:#fff; border-radius:50%; transition:.2s;}
+  .switch input:checked + .slider{background:var(--green);}
+  .switch input:checked + .slider:before{transform:translateX(18px);}
 </style>
 </head>
 <body>
@@ -425,6 +439,25 @@
       <div id="section-settings" style="display:none;">
 
         <div class="subcard">
+          <div class="section-title" style="cursor:pointer;" onclick="toggleSubcard('notifications')">
+            🔔 Notifications <span class="subcard-chevron no-print" id="subcardChevron-notifications">▾</span>
+          </div>
+          <div class="subcard-body" id="subcardBody-notifications">
+            <p class="helptext" style="margin:0 0 8px;">Get alerts sent straight to your phone and computer — even when the app is closed. Turn notifications on once on each device, then pick which alerts you want below (your picks apply to every device).</p>
+            <div class="info-box" id="notifyDeviceStatus"></div>
+            <button class="btn" id="notifyEnableBtn" style="margin-top:8px;">🔔 Turn On Notifications on This Device</button>
+            <button class="btn btn-secondary" id="notifyTestBtn" style="margin-top:8px;">Send a Test Notification</button>
+            <button class="btn btn-danger" id="notifyDisableBtn" style="margin-top:8px;">Turn Off on This Device</button>
+
+            <div class="section-title" style="margin-top:14px;">Which Alerts</div>
+            <div id="notifyPrefsList"></div>
+
+            <div class="section-title" style="margin-top:14px;">Devices Getting Alerts</div>
+            <div id="notifyDevicesList"></div>
+          </div>
+        </div>
+
+        <div class="subcard">
           <div class="section-title" style="cursor:pointer;" onclick="toggleSubcard('deductions')">
             💰 Deductions &amp; Net Pay <span class="subcard-chevron no-print" id="subcardChevron-deductions">▾</span>
           </div>
@@ -668,6 +701,7 @@ function detachCloudListeners(){
   if(unsubAdvances){ unsubAdvances(); unsubAdvances = null; }
   if(unsubCustomize){ unsubCustomize(); unsubCustomize = null; }
   if(unsubPaySettings){ unsubPaySettings(); unsubPaySettings = null; }
+  detachNotifyListeners();
 }
 
 let currentPage = 'home';
@@ -729,6 +763,7 @@ function attachCloudListeners(uid){
     if(isDashboardSectionOpen('settings')) renderCustomizeControls();
   }, ()=> showToast('Cloud sync error (layout)'));
   attachPaySettingsListener(uid);
+  attachNotifyListeners(uid);
 }
 
 async function migrateLocalToCloudIfNeeded(uid){
@@ -835,6 +870,7 @@ function initFirebaseFromSaved(){
 }
 
 function updateCloudUI(){
+  if(isDashboardSectionOpen('settings')) renderNotifySettings();
   const statusEl = document.getElementById('cloudStatus');
   const signInBtn = document.getElementById('googleSignInBtn');
   const signOutBtn = document.getElementById('fbSignOutBtn');
@@ -2649,6 +2685,7 @@ function applyGridColumns(val){
 }
 function renderCustomizeControls(){
   renderPaySettingsControls();
+  renderNotifySettings();
   const order = getSectionOrder();
   const listEl = document.getElementById('sectionOrderList');
   if(listEl){
@@ -3023,12 +3060,236 @@ document.getElementById('restoreInput').addEventListener('change', async (e)=>{
 });
 
 /* ====================================================================
+   NOTIFICATIONS — Web Push to every device the owner turns them on for.
+   Each device's push subscription is saved under users/{uid}/pushSubscriptions,
+   the alert choices under users/{uid}/settings/notifications, and the app's own
+   push key pair under users/{uid}/settings/pushKeys (generated here, once).
+   A scheduled GitHub Action (.github/workflows/notify.yml) reads those and sends.
+   ==================================================================== */
+const NOTIFY_TYPES = [
+  {key:'paycheckPreview', title:'💵 Monday paycheck preview', sub:"Every Monday morning: what you'll be paid this Friday — net, gross, deductions and any advance.", def:true},
+  {key:'payday', title:'🎉 Payday', sub:'Friday morning: how much should be hitting your account today.', def:true},
+  {key:'advanceComing', title:'💳 Advance coming out', sub:"Monday morning, when an advance comes out of Friday's check. (Already included in the paycheck preview when that's on.)", def:true},
+  {key:'weeklyRecap', title:'📊 Weekly recap', sub:"Sunday morning: last week's loads, miles, gross and net, and when it pays.", def:true},
+  {key:'settlementReminder', title:'📄 Settlement reminder', sub:"Saturday morning, if you haven't uploaded the settlement/check stub for Friday's check.", def:true},
+  {key:'logLoadsReminder', title:"🚚 Log today's loads", sub:"Evenings Mon–Sat, only on days you haven't logged a load yet.", def:false},
+];
+let notifyPrefs = Object.fromEntries(NOTIFY_TYPES.map(t => [t.key, t.def]));
+let notifyDevices = []; // {id, deviceName, createdAt}
+let unsubNotifyPrefs = null, unsubNotifyDevices = null;
+let swRegistration = null;
+let thisDeviceSubId = null;
+
+function pushSupported(){ return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window; }
+function isIOS(){ return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); }
+function isStandalone(){ return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true; }
+function guessDeviceName(){
+  const ua = navigator.userAgent;
+  let dev = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ? 'iPad'
+    : /Android/.test(ua) ? 'Android' : /Mac/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows PC' : 'Device';
+  const br = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) && !/Edg\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : '';
+  if(isStandalone()) return dev + ' (Home Screen app)';
+  return br ? `${dev} · ${br}` : dev;
+}
+function b64url(buf){
+  return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+function b64urlToBytes(str){
+  const pad = '='.repeat((4 - str.length % 4) % 4);
+  const raw = atob((str + pad).replace(/-/g,'+').replace(/_/g,'/'));
+  return Uint8Array.from(raw, c => c.charCodeAt(0));
+}
+async function subIdFor(endpoint){
+  const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(endpoint));
+  return Array.from(new Uint8Array(h)).slice(0, 12).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+async function registerServiceWorker(){
+  if(!('serviceWorker' in navigator) || !/^https?:/.test(location.protocol)) return null;
+  try{
+    swRegistration = await navigator.serviceWorker.register('sw.js');
+    return swRegistration;
+  }catch(e){ console.warn('Service worker registration failed', e); return null; }
+}
+async function getPushKeys(uid){
+  const ref = fbDb.collection('users').doc(uid).collection('settings').doc('pushKeys');
+  const doc = await ref.get();
+  if(doc.exists && doc.data().publicKey && doc.data().privateKey) return doc.data();
+  // First time: make this app's own push key pair (P-256), right here in the browser.
+  const kp = await crypto.subtle.generateKey({name:'ECDSA', namedCurve:'P-256'}, true, ['sign','verify']);
+  const publicKey = b64url(await crypto.subtle.exportKey('raw', kp.publicKey));
+  const privateKey = (await crypto.subtle.exportKey('jwk', kp.privateKey)).d;
+  const keys = {publicKey, privateKey, createdAt: new Date().toISOString()};
+  await ref.set(keys);
+  return keys;
+}
+async function enableNotificationsOnThisDevice(){
+  if(!fbUser){ showToast('Sign in under Real-Time Cloud Sync first'); return; }
+  if(!pushSupported()){ renderNotifySettings(); return; }
+  const perm = await Notification.requestPermission();
+  if(perm !== 'granted'){ showToast('Notifications were not allowed'); renderNotifySettings(); return; }
+  try{
+    const reg = swRegistration || await registerServiceWorker() || await navigator.serviceWorker.ready;
+    const keys = await getPushKeys(fbUser.uid);
+    let sub = await reg.pushManager.getSubscription();
+    // A subscription made with a different key can't be used — replace it.
+    if(sub && sub.options && sub.options.applicationServerKey && b64url(sub.options.applicationServerKey) !== keys.publicKey){
+      await sub.unsubscribe(); sub = null;
+    }
+    if(!sub) sub = await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: b64urlToBytes(keys.publicKey)});
+    await saveThisDeviceSubscription(sub);
+    showToast('Notifications on for this device ✓');
+    reg.showNotification('🔔 Notifications are on', {body: "You'll get your paycheck preview every Monday morning.", icon: 'icon-192.png', tag: 'enabled'});
+  }catch(e){
+    console.warn(e);
+    showToast('Could not turn on notifications: ' + (e.message || e));
+  }
+  renderNotifySettings();
+}
+async function saveThisDeviceSubscription(sub){
+  const id = await subIdFor(sub.endpoint);
+  thisDeviceSubId = id;
+  const ref = fbDb.collection('users').doc(fbUser.uid).collection('pushSubscriptions').doc(id);
+  const existing = await ref.get();
+  await ref.set({
+    subscription: JSON.parse(JSON.stringify(sub)),
+    deviceName: (existing.exists && existing.data().deviceName) || guessDeviceName(),
+    createdAt: (existing.exists && existing.data().createdAt) || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+}
+async function disableNotificationsOnThisDevice(){
+  try{
+    const reg = swRegistration || await navigator.serviceWorker.getRegistration();
+    const sub = reg && await reg.pushManager.getSubscription();
+    if(sub){
+      const id = await subIdFor(sub.endpoint);
+      if(fbUser) await fbDb.collection('users').doc(fbUser.uid).collection('pushSubscriptions').doc(id).delete();
+      await sub.unsubscribe();
+    }
+    thisDeviceSubId = null;
+    showToast('Notifications off for this device');
+  }catch(e){ showToast('Could not turn off: ' + (e.message || e)); }
+  renderNotifySettings();
+}
+window.removeNotifyDevice = async function(id){
+  if(!fbUser) return;
+  if(!confirm('Stop sending alerts to this device?')) return;
+  await fbDb.collection('users').doc(fbUser.uid).collection('pushSubscriptions').doc(id).delete();
+  if(id === thisDeviceSubId){
+    try{ const reg = await navigator.serviceWorker.getRegistration(); const sub = reg && await reg.pushManager.getSubscription(); if(sub) await sub.unsubscribe(); }catch(e){}
+    thisDeviceSubId = null;
+  }
+  showToast('Device removed');
+};
+window.setNotifyPref = function(key, on){
+  notifyPrefs[key] = !!on;
+  if(fbUser){
+    fbDb.collection('users').doc(fbUser.uid).collection('settings').doc('notifications')
+      .set({[key]: !!on}, {merge:true}).catch(()=> showToast('Could not save alert setting'));
+  }
+};
+// Keep this device's subscription saved (endpoints can change after OS updates).
+async function syncThisDeviceSubscription(){
+  if(!fbUser || !pushSupported() || Notification.permission !== 'granted') return;
+  try{
+    const reg = swRegistration || await navigator.serviceWorker.getRegistration();
+    const sub = reg && await reg.pushManager.getSubscription();
+    if(sub) await saveThisDeviceSubscription(sub);
+  }catch(e){ console.warn('Push sync error', e); }
+}
+function attachNotifyListeners(uid){
+  detachNotifyListeners();
+  const base = fbDb.collection('users').doc(uid);
+  unsubNotifyPrefs = base.collection('settings').doc('notifications').onSnapshot(doc=>{
+    const data = doc.data() || {};
+    NOTIFY_TYPES.forEach(t => { notifyPrefs[t.key] = typeof data[t.key] === 'boolean' ? data[t.key] : t.def; });
+    if(isDashboardSectionOpen('settings')) renderNotifySettings();
+  }, ()=>{});
+  unsubNotifyDevices = base.collection('pushSubscriptions').onSnapshot(snap=>{
+    notifyDevices = snap.docs.map(d => ({id: d.id, deviceName: d.data().deviceName, createdAt: d.data().createdAt}));
+    if(isDashboardSectionOpen('settings')) renderNotifySettings();
+  }, ()=>{});
+  syncThisDeviceSubscription();
+}
+function detachNotifyListeners(){
+  if(unsubNotifyPrefs){ unsubNotifyPrefs(); unsubNotifyPrefs = null; }
+  if(unsubNotifyDevices){ unsubNotifyDevices(); unsubNotifyDevices = null; }
+}
+async function renderNotifySettings(){
+  const statusEl = document.getElementById('notifyDeviceStatus');
+  if(!statusEl) return;
+  const enableBtn = document.getElementById('notifyEnableBtn');
+  const testBtn = document.getElementById('notifyTestBtn');
+  const disableBtn = document.getElementById('notifyDisableBtn');
+  let subscribed = false;
+  if(pushSupported() && Notification.permission === 'granted'){
+    try{
+      const reg = swRegistration || await navigator.serviceWorker.getRegistration();
+      const sub = reg && await reg.pushManager.getSubscription();
+      if(sub){ subscribed = true; thisDeviceSubId = await subIdFor(sub.endpoint); }
+    }catch(e){}
+  }
+  let status, canEnable = false;
+  if(!fbUser){
+    status = '☁️ Sign in under <strong>Real-Time Cloud Sync</strong> below first — alerts are sent from your synced data.';
+  } else if(isIOS() && !isStandalone()){
+    status = `📱 <strong>On iPhone/iPad, alerts only work from the Home Screen app.</strong><br>1. In Safari, tap the <strong>Share</strong> button (square with ↑).<br>2. Tap <strong>Add to Home Screen</strong> → <strong>Add</strong>.<br>3. Open Load Tracker from your Home Screen, sign in, and come back here.`;
+  } else if(!pushSupported()){
+    status = "⚠️ This browser can't receive push alerts. Use Safari on iPhone/Mac, or Chrome.";
+  } else if(Notification.permission === 'denied'){
+    status = isIOS()
+      ? '🚫 Notifications are blocked. Open iPhone <strong>Settings → Notifications → Load Tracker</strong> and turn on <strong>Allow Notifications</strong>, then come back.'
+      : "🚫 Notifications are blocked for this site. Allow them in your browser's site settings, then come back.";
+  } else if(subscribed){
+    status = '✅ <strong>On for this device.</strong> Your next paycheck preview arrives Monday morning.';
+  } else {
+    status = '🔕 Off on this device. Tap the button below and choose <strong>Allow</strong>.';
+    canEnable = true;
+  }
+  statusEl.innerHTML = status;
+  enableBtn.style.display = canEnable ? '' : 'none';
+  testBtn.style.display = subscribed ? '' : 'none';
+  disableBtn.style.display = subscribed ? '' : 'none';
+
+  const prefsEl = document.getElementById('notifyPrefsList');
+  prefsEl.innerHTML = NOTIFY_TYPES.map(t => `
+    <label class="toggle-row">
+      <div class="t-text"><div class="t-title">${t.title}</div><div class="t-sub">${t.sub}</div></div>
+      <span class="switch"><input type="checkbox" ${notifyPrefs[t.key] ? 'checked' : ''} ${fbUser ? '' : 'disabled'} onchange="setNotifyPref('${t.key}', this.checked)"><span class="slider"></span></span>
+    </label>
+  `).join('') + '<div class="helptext" style="margin:6px 0 0;">Morning alerts arrive around 7–8 AM and the evening reminder around 6–7 PM (Central). Times can drift a little.</div>';
+
+  const devEl = document.getElementById('notifyDevicesList');
+  devEl.innerHTML = notifyDevices.length ? notifyDevices.map(d => `
+    <div class="route-chip">
+      <div>
+        <div class="num">${escapeHtml(d.deviceName || 'Device')}${d.id === thisDeviceSubId ? ' <span class="badge paid" style="margin-left:4px;">This device</span>' : ''}</div>
+        <div class="meta">${d.createdAt ? 'Added ' + fmtDate(d.createdAt.slice(0,10)) : ''}</div>
+      </div>
+      <button class="icon-btn" onclick="removeNotifyDevice('${d.id}')">🗑️</button>
+    </div>
+  `).join('') : '<div class="helptext" style="margin:0;">No devices yet.</div>';
+}
+document.getElementById('notifyEnableBtn').addEventListener('click', enableNotificationsOnThisDevice);
+document.getElementById('notifyDisableBtn').addEventListener('click', disableNotificationsOnThisDevice);
+document.getElementById('notifyTestBtn').addEventListener('click', async ()=>{
+  try{
+    const reg = swRegistration || await navigator.serviceWorker.getRegistration();
+    const next = computeNextPaycheck();
+    await reg.showNotification('🔔 Test notification', {
+      body: next ? `Your next check (${fmtDate(next.payDate)}) is ${fmtMoney(next.netAmt)} net so far.` : 'Notifications are working on this device.',
+      icon: 'icon-192.png', tag: 'test'});
+    showToast('Test sent — check your notifications');
+  }catch(e){ showToast('Test failed: ' + (e.message || e)); }
+});
+
+/* ====================================================================
    INIT
    ==================================================================== */
 /* ====================================================================
    AUTO-UPDATE — when a newer version is live on the web, reload into it
    ==================================================================== */
-const APP_VERSION = 'v32-2026-10-10';
+const APP_VERSION = 'v33-2026-10-10';
 async function checkForAppUpdate(){
   try{
     if(!/^https?:/.test(location.protocol)) return;
@@ -3056,6 +3317,7 @@ setTimeout(checkForAppUpdate, 3000);
   renderLogLoadSettlementPicker();
   renderDashboard();
   renderSettingsStats();
+  registerServiceWorker();
   initFirebaseFromSaved();
 })();
 </script>
