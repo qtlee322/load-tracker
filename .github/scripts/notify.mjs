@@ -147,6 +147,8 @@ function buildMessages(ctx, prefs, slot, forceAll){
 }
 
 /* ---------- main ---------- */
+// Summary lines also go out as GitHub annotations so they show on the run's page.
+function note(msg){ console.log(msg); if(process.env.GITHUB_ACTIONS) console.log(`::notice title=Notifications::${msg}`); }
 async function main(){
   admin.initializeApp({projectId: PROJECT_ID, credential: admin.credential.applicationDefault()});
   const db = admin.firestore();
@@ -164,7 +166,7 @@ async function main(){
       userRef.collection('pushSubscriptions').get(),
     ]);
     const subs = subsSnap.docs.map(d => d.data()).filter(s => s && s.subscription && s.subscription.endpoint);
-    if(!keysDoc.exists || !subs.length){ console.log('A user without notification devices — skipping'); continue; }
+    if(!keysDoc.exists || !subs.length){ note(`Found your data, but no device has notifications turned on yet (${keysDoc.exists ? 'push key ready' : 'no push key yet'}, ${subs.length} device(s))`); continue; }
     const keys = keysDoc.data();
     const prefs = {...NOTIFY_DEFAULTS, ...((prefsDoc.exists && prefsDoc.data()) || {})};
 
@@ -186,7 +188,7 @@ async function main(){
     } else {
       messages = buildMessages({today: now.date, weekPay, loads, settlementWeeks}, prefs, slot, MODE === 'all');
     }
-    console.log(`${subs.length} device(s) · ${loads.length} loads · ${messages.length} message(s) due: ${messages.map(m => m.tag.split('-')[0]).join(', ') || 'none'}`);
+    note(`${subs.length} device(s) · ${loads.length} loads · ${messages.length} message(s) due: ${messages.map(m => m.tag.split('-')[0]).join(', ') || 'none'}`);
     if(MODE === 'check' || !messages.length) continue;
 
     webpush.setVapidDetails('mailto:qtlee322@gmail.com', keys.publicKey, keys.privateKey);
@@ -203,7 +205,8 @@ async function main(){
       }
     }
   }
-  console.log(`Done — ${sent} sent, ${failed} failed`);
+  if(!users.length) note('No app data found in Firestore');
+  note(`Done — ${sent} sent, ${failed} failed`);
   if(failed && !sent) process.exitCode = 1;
 }
 
