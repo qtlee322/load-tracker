@@ -330,7 +330,7 @@
             <button class="btn btn-secondary btn-small no-print" id="advancesAddBtn" onclick="event.stopPropagation()">+ Add Advance</button>
           </div>
           <div class="subcard-body" id="subcardBody-advances-list">
-            <div class="helptext" style="margin:0 0 4px;">Every advance you've taken, automatically applied to the check two weeks out from its date.</div>
+            <div class="helptext" style="margin:0 0 4px;">Every advance you've taken, automatically applied to the check a set number of weeks out from its date (2 weeks by default — change it in ⚙️ Settings → Advance Payback Timing).</div>
             <div id="advancesContent" style="margin-top:10px;"></div>
           </div>
         </div>
@@ -423,6 +423,38 @@
         <span id="chevron-settings" class="no-print">▸ tap to expand</span>
       </div>
       <div id="section-settings" style="display:none;">
+
+        <div class="subcard">
+          <div class="section-title" style="cursor:pointer;" onclick="toggleSubcard('deductions')">
+            💰 Deductions &amp; Net Pay <span class="subcard-chevron no-print" id="subcardChevron-deductions">▾</span>
+          </div>
+          <div class="subcard-body" id="subcardBody-deductions">
+            <p class="helptext" style="margin:0 0 8px;">The pay you enter for each load is your <strong>gross</strong>. Everything listed here comes out of every check to get your <strong>net</strong> (what you actually take home). Change these any time they change — pick which check the new numbers start with, and older checks keep the rates they were paid at.</p>
+            <div id="deductionItemsList"></div>
+            <button class="btn btn-secondary btn-small" id="addDeductionItemBtn" style="width:100%; margin-top:6px;">+ Add a Deduction</button>
+            <label for="deductionEffectiveInput" style="margin-top:12px;">These rates start with the check paid on</label>
+            <input type="date" id="deductionEffectiveInput">
+            <div class="helptext" id="deductionPreview" style="margin:6px 0 0;"></div>
+            <button class="btn" id="saveDeductionsBtn" style="margin-top:10px;">Save Deductions</button>
+            <div class="section-title" style="margin-top:14px;">Rate History</div>
+            <div id="deductionHistoryList"></div>
+          </div>
+        </div>
+
+        <div class="subcard">
+          <div class="section-title" style="cursor:pointer;" onclick="toggleSubcard('advancepayback')">
+            💳 Advance Payback Timing <span class="subcard-chevron no-print" id="subcardChevron-advancepayback">▾</span>
+          </div>
+          <div class="subcard-body" id="subcardBody-advancepayback">
+            <p class="helptext" style="margin:0 0 8px;">How long after you receive a cash advance it comes out of your pay. Right now it's 2 weeks — change it here if JBF changes that.</p>
+            <label for="advanceWeeksInput">Advance comes out this many weeks after I receive it</label>
+            <input type="number" id="advanceWeeksInput" inputmode="numeric" min="0" max="8" step="1">
+            <div class="info-box" id="advanceWeeksPreview" style="margin-top:8px;"></div>
+            <button class="btn" id="saveAdvanceWeeksBtn" style="margin-top:10px;">Save Advance Timing</button>
+            <button class="btn btn-secondary" id="reapplyAdvancesBtn" style="margin-top:8px;">Re-apply to Advances Not Yet Paid Back</button>
+            <div class="helptext" style="margin:6px 0 0;">Saving only changes advances you add from now on. Tap "Re-apply" to move any advances that haven't come out of a check yet to the new timing.</div>
+          </div>
+        </div>
 
         <div class="subcard">
           <div class="section-title" style="cursor:pointer;" onclick="toggleSubcard('customize')">
@@ -635,6 +667,7 @@ function detachCloudListeners(){
   if(unsubDocs){ unsubDocs(); unsubDocs = null; }
   if(unsubAdvances){ unsubAdvances(); unsubAdvances = null; }
   if(unsubCustomize){ unsubCustomize(); unsubCustomize = null; }
+  if(unsubPaySettings){ unsubPaySettings(); unsubPaySettings = null; }
 }
 
 let currentPage = 'home';
@@ -695,6 +728,7 @@ function attachCloudListeners(uid){
     }
     if(isDashboardSectionOpen('settings')) renderCustomizeControls();
   }, ()=> showToast('Cloud sync error (layout)'));
+  attachPaySettingsListener(uid);
 }
 
 async function migrateLocalToCloudIfNeeded(uid){
@@ -924,12 +958,269 @@ async function removeAdvance(id){
   }
   await dbDelete('advances', id);
 }
-// Advances always come out of the check two weeks after the date they're taken.
-// A work week is always Sun-Sat, so "two weeks from the advance date" always lands
-// exactly on the work week that starts 14 days after the advance date's own work week.
-function advanceTargetWeekStart(dateTaken){
-  return addDays(getWeekStart(dateTaken), 14);
+/* ====================================================================
+   PAY SETTINGS — deductions (gross → net) and advance payback timing.
+   Saved on this device and, when signed in, synced to users/{uid}/settings/pay.
+   Deductions are kept as dated versions so changing a rate never rewrites
+   what older checks were actually paid at.
+   ==================================================================== */
+const PAY_DEFAULT_ITEMS = [
+  {name:'Deductions', type:'percent', value:8},
+  {name:'Personal', type:'percent', value:2},
+];
+const PAY_EARLIEST = '2000-01-01';
+function defaultPaySettings(){
+  return {versions:[{effective: PAY_EARLIEST, items: PAY_DEFAULT_ITEMS.map(i=>({...i}))}], advanceWeeks: 2};
 }
+function normalizePaySettings(d){
+  const out = defaultPaySettings();
+  if(d && Array.isArray(d.versions) && d.versions.length){
+    const versions = d.versions
+      .filter(v => v && typeof v.effective === 'string' && Array.isArray(v.items))
+      .map(v => ({
+        effective: v.effective,
+        items: v.items
+          .filter(i => i && (Number(i.value) || 0) > 0)
+          .map(i => ({name: String(i.name || 'Deduction'), type: i.type === 'flat' ? 'flat' : 'percent', value: Number(i.value) || 0})),
+      }))
+      .sort((a,b)=> a.effective.localeCompare(b.effective));
+    if(versions.length) out.versions = versions;
+  }
+  if(d && d.advanceWeeks !== undefined && d.advanceWeeks !== null){
+    const w = Math.round(Number(d.advanceWeeks));
+    if(!isNaN(w) && w >= 0 && w <= 8) out.advanceWeeks = w;
+  }
+  return out;
+}
+let paySettings = (function(){
+  try{ return normalizePaySettings(JSON.parse(localStorage.getItem('ltPaySettings') || 'null')); }
+  catch(e){ return defaultPaySettings(); }
+})();
+let unsubPaySettings = null;
+function savePaySettings(){
+  localStorage.setItem('ltPaySettings', JSON.stringify(paySettings));
+  if(fbUser){
+    return fbDb.collection('users').doc(fbUser.uid).collection('settings').doc('pay')
+      .set({versions: paySettings.versions, advanceWeeks: paySettings.advanceWeeks})
+      .catch(()=> showToast('Could not sync pay settings to cloud'));
+  }
+}
+function rerenderPayViews(){
+  renderDashboard();
+  if(isDashboardSectionOpen('payreports')){ renderPay(); renderReports(); }
+  if(isDashboardSectionOpen('advances')){ renderAdvancesSection(); renderAdvancesReport(); }
+  if(isDashboardSectionOpen('settings')) renderPaySettingsControls();
+}
+function attachPaySettingsListener(uid){
+  if(unsubPaySettings){ unsubPaySettings(); unsubPaySettings = null; }
+  const ref = fbDb.collection('users').doc(uid).collection('settings').doc('pay');
+  unsubPaySettings = ref.onSnapshot(doc=>{
+    if(!doc.exists){
+      // First sign-in since this feature shipped — push this device's settings up.
+      ref.set({versions: paySettings.versions, advanceWeeks: paySettings.advanceWeeks}).catch(()=>{});
+      return;
+    }
+    paySettings = normalizePaySettings(doc.data());
+    localStorage.setItem('ltPaySettings', JSON.stringify(paySettings));
+    rerenderPayViews();
+  }, ()=> showToast('Cloud sync error (pay settings)'));
+}
+// Which deduction rates applied to the check paid on payDate.
+function deductionItemsFor(payDate){
+  const v = paySettings.versions;
+  let chosen = v[0];
+  v.forEach(ver => { if(ver.effective <= payDate) chosen = ver; });
+  return chosen ? chosen.items : [];
+}
+function describeDeductionItems(items){
+  if(!items.length) return 'No deductions';
+  return items.map(i => `${escapeHtml(i.name)} ${i.type === 'flat' ? fmtMoney(i.value) : (+i.value) + '%'}`).join(' · ');
+}
+// share = this gross's portion of the whole check (so flat $ deductions are split fairly
+// when a report period only covers part of a work week).
+function computeDeductions(gross, payDate, share){
+  if(share === undefined) share = 1;
+  if(!(gross > 0)) return {items: [], total: 0};
+  const items = deductionItemsFor(payDate).map(i => ({
+    ...i,
+    amount: i.type === 'flat' ? i.value * share : gross * i.value / 100,
+  }));
+  return {items, total: items.reduce((s,i)=> s + i.amount, 0)};
+}
+// Everything about one paycheck (one work week).
+function weekPay(ws, weekLoads){
+  if(!weekLoads) weekLoads = loads.filter(l => l.date && getWeekStart(l.date) === ws);
+  const stats = computeStats(weekLoads);
+  const payDate = computePayDate(ws);
+  const ded = computeDeductions(stats.totalPay, payDate);
+  const advAmt = getAdvanceTotal(ws);
+  const afterDed = stats.totalPay - ded.total;
+  return {stats, payDate, gross: stats.totalPay, ded, dedTotal: ded.total, afterDed, advAmt, netAmt: afterDed - advAmt};
+}
+// Deductions/net for any set of loads (a month, a year, all-time...).
+// Net here is after deductions, before advances (advances are tracked per check).
+function netForLoads(list){
+  const byWeek = groupLoadsByWeek(list);
+  const allByWeek = groupLoadsByWeek(loads);
+  let gross = 0, dedTotal = 0;
+  Object.keys(byWeek).forEach(ws=>{
+    const subGross = computeStats(byWeek[ws]).totalPay;
+    const weekGross = computeStats(allByWeek[ws] || byWeek[ws]).totalPay;
+    const share = weekGross > 0 ? subGross / weekGross : 1;
+    gross += subGross;
+    dedTotal += computeDeductions(subGross, computePayDate(ws), share).total;
+  });
+  return {gross, dedTotal, net: gross - dedTotal};
+}
+function nextPayDateOnOrAfter(dateStr){
+  // Pay day is Friday; find the first Friday on/after dateStr.
+  const d = new Date(dateStr + 'T00:00:00');
+  const diff = (5 - d.getDay() + 7) % 7;
+  return addDays(dateStr, diff);
+}
+function advanceWeeksLabel(){
+  const w = paySettings.advanceWeeks;
+  return w === 0 ? 'the same week' : (w === 1 ? 'one week' : (w === 2 ? 'two weeks' : w + ' weeks')) + (w === 0 ? '' : ' out');
+}
+
+// Advances come out of the check for the work week that starts N weeks (set in
+// Settings → Advance Payback Timing, default 2) after the advance date's own work week.
+function advanceTargetWeekStart(dateTaken){
+  return addDays(getWeekStart(dateTaken), paySettings.advanceWeeks * 7);
+}
+async function updateAdvance(id, patch){
+  if(fbUser){
+    await fbDb.collection('users').doc(fbUser.uid).collection('advances').doc(id).update(patch);
+    return;
+  }
+  const existing = await dbGet('advances', id);
+  if(existing) await dbPut('advances', {...existing, ...patch});
+}
+
+/* ---------- Settings UI for deductions + advance timing ---------- */
+let deductionDraft = null; // items being edited in Settings
+function renderPaySettingsControls(){
+  const listEl = document.getElementById('deductionItemsList');
+  if(!listEl) return;
+  const today = todayStr();
+  if(!deductionDraft){
+    deductionDraft = deductionItemsFor(nextPayDateOnOrAfter(today)).map(i => ({...i}));
+  }
+  listEl.innerHTML = deductionDraft.length ? deductionDraft.map((i, idx) => `
+    <div class="route-chip" style="gap:6px; align-items:center;">
+      <input type="text" value="${escapeHtml(i.name)}" placeholder="Name" style="flex:3; margin:0; min-width:0;" oninput="deductionDraft[${idx}].name = this.value">
+      <input type="number" inputmode="decimal" value="${i.value}" step="0.01" min="0" style="flex:1.2; margin:0; min-width:0;" oninput="deductionDraft[${idx}].value = parseFloat(this.value) || 0; updateDeductionPreview();">
+      <select style="flex:0 0 58px; margin:0; padding-left:6px; padding-right:2px;" onchange="deductionDraft[${idx}].type = this.value; updateDeductionPreview();">
+        <option value="percent" ${i.type === 'percent' ? 'selected' : ''}>%</option>
+        <option value="flat" ${i.type === 'flat' ? 'selected' : ''}>$</option>
+      </select>
+      <button class="icon-btn" onclick="removeDeductionDraftItem(${idx})">🗑️</button>
+    </div>
+  `).join('') : '<div class="helptext" style="margin:0 0 6px;">No deductions — net will equal gross.</div>';
+
+  const effEl = document.getElementById('deductionEffectiveInput');
+  if(effEl && !effEl.value) effEl.value = nextPayDateOnOrAfter(today);
+  updateDeductionPreview();
+
+  const histEl = document.getElementById('deductionHistoryList');
+  const versions = paySettings.versions.slice().reverse();
+  histEl.innerHTML = versions.map((v, idx) => {
+    const isFirst = v === paySettings.versions[0];
+    const label = isFirst ? 'From the start' : `Checks paid ${fmtDate(v.effective)} and after`;
+    return `
+      <div class="route-chip">
+        <div>
+          <div class="num">${label}${idx === 0 ? ' <span class="badge paid" style="margin-left:4px;">Current</span>' : ''}</div>
+          <div class="meta">${describeDeductionItems(v.items)}</div>
+        </div>
+        ${isFirst ? '' : `<button class="icon-btn" onclick="deleteDeductionVersion('${v.effective}')">🗑️</button>`}
+      </div>
+    `;
+  }).join('');
+
+  const wkEl = document.getElementById('advanceWeeksInput');
+  if(wkEl && document.activeElement !== wkEl) wkEl.value = paySettings.advanceWeeks;
+  updateAdvanceWeeksPreview();
+}
+window.updateDeductionPreview = function(){
+  const el = document.getElementById('deductionPreview');
+  if(!el || !deductionDraft) return;
+  const pct = deductionDraft.filter(i => i.type === 'percent').reduce((s,i)=> s + (Number(i.value)||0), 0);
+  const flat = deductionDraft.filter(i => i.type === 'flat').reduce((s,i)=> s + (Number(i.value)||0), 0);
+  const ex = 2000;
+  const net = ex - ex * pct / 100 - flat;
+  el.innerHTML = `Total: <strong>${+pct.toFixed(2)}%</strong>${flat ? ` + <strong>${fmtMoney(flat)}</strong> per check` : ''} · Example: ${fmtMoney(ex)} gross → <strong style="color:var(--green);">${fmtMoney(net)}</strong> net`;
+};
+window.removeDeductionDraftItem = function(idx){
+  deductionDraft.splice(idx, 1);
+  renderPaySettingsControls();
+};
+window.deleteDeductionVersion = function(effective){
+  if(!confirm(`Remove the rates that started ${fmtDate(effective)}? Those checks will go back to the earlier rates.`)) return;
+  paySettings.versions = paySettings.versions.filter(v => v.effective !== effective);
+  deductionDraft = null;
+  savePaySettings();
+  rerenderPayViews();
+  renderPaySettingsControls();
+  showToast('Rate change removed');
+};
+function updateAdvanceWeeksPreview(){
+  const el = document.getElementById('advanceWeeksPreview');
+  const input = document.getElementById('advanceWeeksInput');
+  if(!el || !input) return;
+  let w = Math.round(Number(input.value));
+  if(isNaN(w) || w < 0) w = 0;
+  if(w > 8) w = 8;
+  const today = todayStr();
+  const ws = addDays(getWeekStart(today), w * 7);
+  el.innerHTML = `An advance received today (${fmtDate(today)}) would come out of the check paid <strong style="color:var(--text);">${fmtDate(computePayDate(ws))}</strong> (work week ${fmtDateShort(ws)}–${fmtDateShort(addDays(ws,6))}).`;
+}
+document.getElementById('advanceWeeksInput').addEventListener('input', updateAdvanceWeeksPreview);
+document.getElementById('addDeductionItemBtn').addEventListener('click', ()=>{
+  if(!deductionDraft) deductionDraft = [];
+  deductionDraft.push({name:'', type:'percent', value:0});
+  renderPaySettingsControls();
+});
+document.getElementById('saveDeductionsBtn').addEventListener('click', ()=>{
+  const items = (deductionDraft || [])
+    .map(i => ({name: (i.name || '').trim() || 'Deduction', type: i.type === 'flat' ? 'flat' : 'percent', value: Number(i.value) || 0}))
+    .filter(i => i.value > 0);
+  if(items.some(i => i.type === 'percent' && i.value >= 100)){ showToast('A percentage must be under 100'); return; }
+  const effective = document.getElementById('deductionEffectiveInput').value || nextPayDateOnOrAfter(todayStr());
+  let versions = paySettings.versions.filter(v => v.effective !== effective);
+  // Starting on/before the very first version = these rates apply to every check.
+  if(effective <= versions.reduce((m,v)=> v.effective < m ? v.effective : m, '9999-12-31')){
+    versions = versions.filter(v => v.effective > effective);
+    versions.unshift({effective: PAY_EARLIEST, items});
+  } else {
+    versions.push({effective, items});
+  }
+  paySettings.versions = versions.sort((a,b)=> a.effective.localeCompare(b.effective));
+  deductionDraft = null;
+  savePaySettings();
+  rerenderPayViews();
+  renderPaySettingsControls();
+  showToast('Deductions saved ✓');
+});
+document.getElementById('saveAdvanceWeeksBtn').addEventListener('click', ()=>{
+  const w = Math.round(Number(document.getElementById('advanceWeeksInput').value));
+  if(isNaN(w) || w < 0 || w > 8){ showToast('Enter 0 to 8 weeks'); return; }
+  paySettings.advanceWeeks = w;
+  savePaySettings();
+  rerenderPayViews();
+  showToast(`Saved ✓ — new advances will come out ${w} week${w===1?'':'s'} after you receive them`);
+});
+document.getElementById('reapplyAdvancesBtn').addEventListener('click', async ()=>{
+  const today = todayStr();
+  const pending = advances.filter(a => a.date && computePayDate(a.weekStart) >= today);
+  const toMove = pending.filter(a => advanceTargetWeekStart(a.date) !== a.weekStart);
+  if(!toMove.length){ showToast('Nothing to move — every unpaid advance already matches'); return; }
+  if(!confirm(`Move ${toMove.length} advance${toMove.length===1?'':'s'} that haven't been paid back yet to the ${paySettings.advanceWeeks}-week timing?`)) return;
+  for(const a of toMove){ await updateAdvance(a.id, {weekStart: advanceTargetWeekStart(a.date)}); }
+  if(!fbUser){ await loadAdvancesFromDB(); }
+  rerenderPayViews();
+  showToast(`Moved ${toMove.length} advance${toMove.length===1?'':'s'} ✓`);
+});
 async function addAdvanceFlow(amount, dateTaken, notes){
   const weekStart = advanceTargetWeekStart(dateTaken);
   await addAdvance({weekStart, amount, date: dateTaken, notes});
@@ -952,7 +1243,7 @@ window.showAddAdvanceModal = function(){
         <strong style="font-size:15px;">+ Add Advance</strong>
         <button class="icon-btn no-print" style="font-size:22px;" id="closeAddAdvanceBtn">×</button>
       </div>
-      <div class="helptext" style="margin:6px 0 12px;">This automatically comes out of whichever check is two weeks after the date you pick — no need to find the right week yourself.</div>
+      <div class="helptext" style="margin:6px 0 12px;">This automatically comes out of whichever check is ${advanceWeeksLabel()} from the date you pick (change this in ⚙️ Settings) — no need to find the right week yourself.</div>
       <label for="quickAdvAmount">Advance amount ($)</label>
       <input type="number" id="quickAdvAmount" inputmode="decimal" placeholder="0.00">
       <label for="quickAdvDate">Date taken</label>
@@ -1064,7 +1355,7 @@ function renderSectionByName(name){
   if(name === 'payreports'){ renderPay(); renderReports(); }
   if(name === 'advances'){ renderAdvancesSection(); renderAdvancesReport(); }
   if(name === 'routeshistory'){ renderRoutesList(); renderHistory(); renderDateLookup(); }
-  if(name === 'settings') renderCustomizeControls();
+  if(name === 'settings'){ deductionDraft = null; renderCustomizeControls(); }
 }
 
 /* Bottom-nav "pages": Home (paychecks) + one button per section. */
@@ -1741,9 +2032,7 @@ function computeNextPaycheck(){
     }
   });
   if(!nextCheck) return null;
-  const advAmt = getAdvanceTotal(nextCheck.weekStart);
-  const netAmt = nextCheck.stats.totalPay - advAmt;
-  return {...nextCheck, advAmt, netAmt};
+  return {...nextCheck, ...weekPay(nextCheck.weekStart, map[nextCheck.weekStart])};
 }
 async function renderPay(){
   const map = groupLoadsByWeek(loads);
@@ -1762,25 +2051,32 @@ async function renderPay(){
   const curYm = today.slice(0,7);
   const curYear = today.slice(0,4);
   let earnedMonth = 0, earnedYear = 0, earnedAllTime = 0, paidCheckCount = 0;
+  let grossMonth = 0, grossYear = 0, grossAllTime = 0;
   weekStarts.forEach(ws=>{
     const payDate = computePayDate(ws);
     if(payDate >= today) return; // not yet received
-    const stats = computeStats(map[ws]);
-    const net = stats.totalPay - getAdvanceTotal(ws);
-    earnedAllTime += net;
+    const wp = weekPay(ws, map[ws] || []);
+    const net = wp.netAmt;
+    earnedAllTime += net; grossAllTime += wp.gross;
     paidCheckCount++;
-    if(payDate.slice(0,4) === curYear) earnedYear += net;
-    if(payDate.slice(0,7) === curYm) earnedMonth += net;
+    if(payDate.slice(0,4) === curYear){ earnedYear += net; grossYear += wp.gross; }
+    if(payDate.slice(0,7) === curYm){ earnedMonth += net; grossMonth += wp.gross; }
   });
   let html = `
     <div class="card paycheck-card">
-      <div class="section-title">💵 Total Earned</div>
+      <div class="section-title">💵 Total Earned — Net (Take-Home)</div>
       <div class="summary-grid">
         <div class="stat"><div class="v">${fmtMoney(earnedMonth)}</div><div class="l">This Month</div></div>
         <div class="stat"><div class="v">${fmtMoney(earnedYear)}</div><div class="l">This Year</div></div>
         <div class="stat"><div class="v">${fmtMoney(earnedAllTime)}</div><div class="l">All-Time</div></div>
       </div>
-      <div class="helptext" style="margin:6px 0 0;">Based on ${paidCheckCount} paycheck${paidCheckCount===1?'':'s'} received so far (net of advances). Tap any check below to see every load on it — scroll down to "Summary &amp; Reports" for a Monthly/Yearly breakdown.</div>
+      <div class="section-title" style="margin-top:10px;">Gross</div>
+      <div class="summary-grid">
+        <div class="stat"><div class="v" style="color:var(--muted);">${fmtMoney(grossMonth)}</div><div class="l">This Month</div></div>
+        <div class="stat"><div class="v" style="color:var(--muted);">${fmtMoney(grossYear)}</div><div class="l">This Year</div></div>
+        <div class="stat"><div class="v" style="color:var(--muted);">${fmtMoney(grossAllTime)}</div><div class="l">All-Time</div></div>
+      </div>
+      <div class="helptext" style="margin:6px 0 0;">Based on ${paidCheckCount} paycheck${paidCheckCount===1?'':'s'} received so far. Net = gross minus deductions (${describeDeductionItems(deductionItemsFor(today))}) and advances — change deductions in ⚙️ Settings. Tap any check below to see every load on it — scroll down to "Summary &amp; Reports" for a Monthly/Yearly breakdown.</div>
     </div>
   `;
   html += `<div class="helptext" style="margin:10px 0 10px;">Tap 💰 Quick Glance up top to see your next 3 paychecks at a glance. Every week — with settlement status — is listed below.</div>`;
@@ -1798,8 +2094,9 @@ async function renderPay(){
       if(isCurrent) badge = '<span class="badge progress">In progress</span>';
       else if(isPaid) badge = '<span class="badge paid">Paid</span>';
       else badge = '<span class="badge upcoming">Upcoming</span>';
-      const advAmt = getAdvanceTotal(ws);
-      const netAmt = stats.totalPay - advAmt;
+      const wp = weekPay(ws, map[ws] || []);
+      const advAmt = wp.advAmt;
+      const netAmt = wp.netAmt;
       const hasSettlement = settlementWeeks.has(ws);
       return `
         <div class="load-card" style="cursor:pointer;" onclick="viewWeekLoads('${ws}')">
@@ -1813,6 +2110,8 @@ async function renderPay(){
           <div class="load-mid">
             ${badge}
             <span>Pay date: ${fmtDate(payDate)}</span>
+            <span>Gross: ${fmtMoney(wp.gross)}</span>
+            ${wp.dedTotal > 0 ? `<span style="color:var(--red);">Deductions: -${fmtMoney(wp.dedTotal)}</span>` : ''}
             ${advAmt > 0 ? `<span style="color:var(--red);">Advance: -${fmtMoney(advAmt)}</span>` : ''}
             <span style="color:${hasSettlement ? 'var(--green)' : 'var(--muted)'};">${hasSettlement ? '📎 Settlement uploaded' : 'No settlement yet'}</span>
           </div>
@@ -1848,7 +2147,9 @@ window.viewWeekLoads = async function(weekStart){
 
   const weekAdvances = advances.filter(a => a.weekStart === weekStart).slice().sort((a,b)=> (a.date||'').localeCompare(b.date||''));
   const advTotal = weekAdvances.reduce((s,a)=> s + (Number(a.amount)||0), 0);
-  const netAmt = stats.totalPay - advTotal;
+  const wp = weekPay(weekStart, weekLoads);
+  const netAmt = wp.netAmt;
+  const dedLinesHtml = wp.ded.items.map(i => `${escapeHtml(i.name)} (${i.type === 'flat' ? fmtMoney(i.value) : (+i.value) + '%'}): <strong style="color:var(--red);">-${fmtMoney(i.amount)}</strong><br>`).join('');
   const advancesHtml = weekAdvances.map(a => `
     <div class="route-chip">
       <div>
@@ -1901,7 +2202,7 @@ window.viewWeekLoads = async function(weekStart){
       </div>
 
       <div class="section-title">Advance${weekAdvances.length===1?'':'s'} On This Check</div>
-      ${weekAdvances.length ? advancesHtml : '<div class="helptext" style="margin:0 0 10px;">None yet — take one below and it will automatically land on whichever check is two weeks out from the date you pick.</div>'}
+      ${weekAdvances.length ? advancesHtml : `<div class="helptext" style="margin:0 0 10px;">None yet — take one below and it will automatically land on whichever check is ${advanceWeeksLabel()} from the date you pick.</div>`}
       <div class="row2" style="margin-top:8px;">
         <input type="number" id="advAmountInput" inputmode="decimal" placeholder="Advance amount ($)">
         <input type="date" id="advDateInput" value="${todayStr()}">
@@ -1911,6 +2212,8 @@ window.viewWeekLoads = async function(weekStart){
 
       <div class="info-box" style="margin-top:14px;">
         Gross: <strong style="color:var(--text);">${fmtMoney(stats.totalPay)}</strong><br>
+        ${dedLinesHtml}
+        ${wp.dedTotal > 0 ? `After deductions: <strong style="color:var(--text);">${fmtMoney(wp.afterDed)}</strong><br>` : ''}
         Advance${weekAdvances.length===1?'':'s'} taken: <strong style="color:var(--red);">-${fmtMoney(advTotal)}</strong><br>
         <span style="font-size:15px;">Net you'll receive: <strong style="color:var(--green);">${fmtMoney(netAmt)}</strong></span>
       </div>
@@ -2120,11 +2423,13 @@ function buildThreeChecksHtml(){
   const workingWeekStart = curWeekStart;
 
   function statsFor(ws){
-    const wLoads = loads.filter(l => l.date && getWeekStart(l.date) === ws);
-    const stats = computeStats(wLoads);
-    const advAmt = getAdvanceTotal(ws);
-    const netAmt = stats.totalPay - advAmt;
-    return {stats, advAmt, netAmt};
+    return weekPay(ws);
+  }
+  function grossLine(p){
+    const parts = [`Gross ${fmtMoney(p.gross)}`];
+    if(p.dedTotal > 0) parts.push(`deductions -${fmtMoney(p.dedTotal)}`);
+    if(p.advAmt > 0) parts.push(`advance -${fmtMoney(p.advAmt)}`);
+    return `<div class="paycheck-sub" style="margin-top:2px;">${parts.join(' · ')}</div>`;
   }
 
   // Check 1 — this week's paycheck, being received now
@@ -2133,7 +2438,8 @@ function buildThreeChecksHtml(){
   const receivingHtml = `
     <div class="card paycheck-card" style="cursor:pointer;" onclick="viewWeekLoads('${receivingWeekStart}')">
       <div class="section-title">✅ This Week's Paycheck</div>
-      <div class="paycheck-amt">${fmtMoney(r.netAmt)}</div>
+      <div class="paycheck-amt">${fmtMoney(r.netAmt)} <span style="font-size:13px; font-weight:600; color:var(--muted);">net</span></div>
+      ${grossLine(r)}
       <div class="paycheck-sub">Pay date: <strong style="color:var(--text);">${fmtDate(receivingPayDate)}</strong> · Tap for details &amp; advances →</div>
     </div>
   `;
@@ -2144,7 +2450,8 @@ function buildThreeChecksHtml(){
   const nextHtml = `
     <div class="card nextweek-card" style="cursor:pointer;" onclick="viewWeekLoads('${nextWeekStart}')">
       <div class="section-title">🔵 Next Week's Paycheck</div>
-      <div class="nextweek-amt">${fmtMoney(n.netAmt)}</div>
+      <div class="nextweek-amt">${fmtMoney(n.netAmt)} <span style="font-size:13px; font-weight:600; color:var(--muted);">net</span></div>
+      ${grossLine(n)}
       <div class="paycheck-sub">Pay date: <strong style="color:var(--text);">${fmtDate(nextPayDate)}</strong> · Tap for details &amp; advances →</div>
     </div>
   `;
@@ -2155,7 +2462,8 @@ function buildThreeChecksHtml(){
   const workingHtml = w.stats.count ? `
     <div class="card thisweek-card" style="cursor:pointer;" onclick="viewWeekLoads('${workingWeekStart}')">
       <div class="section-title">🟠 Currently Working On</div>
-      <div class="thisweek-amt">${fmtMoney(w.stats.totalPay)}</div>
+      <div class="thisweek-amt">${fmtMoney(w.netAmt)} <span style="font-size:13px; font-weight:600; color:var(--muted);">net so far</span></div>
+      ${grossLine(w)}
       <div class="paycheck-sub">${w.stats.count} load${w.stats.count===1?'':'s'} so far · ${fmtMiles(w.stats.totalMiles)} · Pay date: <strong style="color:var(--text);">${fmtDate(workingPayDate)}</strong> · Tap to view →</div>
     </div>
   ` : `
@@ -2185,22 +2493,26 @@ function renderDashboard(){
   const curStats = computeStats(curMonthLoads);
   const curDays = new Set(curMonthLoads.map(l=>l.date)).size;
   const curRoutes = new Set(curMonthLoads.map(l=>l.routeNumber)).size;
+  const curNet = netForLoads(curMonthLoads);
+  const allNet = netForLoads(loads);
   const totalsHtml = `
     <div class="card">
       <div class="section-title">${fmtMonthLabel(curYm)} — This Month</div>
       <div class="summary-grid">
         <div class="stat"><div class="v">${curStats.count}</div><div class="l">Loads</div></div>
         <div class="stat"><div class="v">${Math.round(curStats.totalMiles)}</div><div class="l">Miles</div></div>
-        <div class="stat"><div class="v">${fmtMoney(curStats.totalPay)}</div><div class="l">Pay</div></div>
+        <div class="stat"><div class="v">${fmtMoney(curStats.totalPay)}</div><div class="l">Gross</div></div>
       </div>
+      <div class="info-box" style="margin-top:8px;">Gross ${fmtMoney(curNet.gross)} − deductions ${fmtMoney(curNet.dedTotal)} = <strong style="color:var(--green); font-size:15px;">${fmtMoney(curNet.net)} net</strong></div>
       <div class="helptext" style="margin:6px 0 0;">${curDays} day${curDays===1?'':'s'} worked · ${curRoutes} route${curRoutes===1?'':'s'} so far this month</div>
 
       <div class="section-title" style="margin-top:14px;">All-Time</div>
       <div class="summary-grid">
         <div class="stat"><div class="v">${all.count}</div><div class="l">Total Loads</div></div>
         <div class="stat"><div class="v">${Math.round(all.totalMiles)}</div><div class="l">Total Miles</div></div>
-        <div class="stat"><div class="v">${fmtMoney(all.totalPay)}</div><div class="l">Total Pay</div></div>
+        <div class="stat"><div class="v">${fmtMoney(all.totalPay)}</div><div class="l">Total Gross</div></div>
       </div>
+      <div class="info-box" style="margin-top:8px;">Gross ${fmtMoney(allNet.gross)} − deductions ${fmtMoney(allNet.dedTotal)} = <strong style="color:var(--green); font-size:15px;">${fmtMoney(allNet.net)} net</strong></div>
       <div class="helptext" style="margin:6px 0 0;">Across ${routeCount} route${routeCount===1?'':'s'} and ${monthCount} month${monthCount===1?'':'s'}. Open "Pay &amp; Reports" below to browse previous months and routes.</div>
     </div>
   `;
@@ -2336,6 +2648,7 @@ function applyGridColumns(val){
   // Column layout no longer applies: each section is now its own page opened from the bottom bar.
 }
 function renderCustomizeControls(){
+  renderPaySettingsControls();
   const order = getSectionOrder();
   const listEl = document.getElementById('sectionOrderList');
   if(listEl){
@@ -2413,7 +2726,8 @@ function computePeriodStats(list){
   const stats = computeStats(list);
   const days = new Set(list.map(l=>l.date)).size;
   const routes = new Set(list.map(l=>l.routeNumber)).size;
-  return {...stats, days, routes};
+  const n = netForLoads(list);
+  return {...stats, days, routes, dedTotal: n.dedTotal, net: n.net};
 }
 function periodKeyFor(dateStr, mode){
   if(mode === 'weekly') return getWeekStart(dateStr);
@@ -2465,7 +2779,8 @@ function renderReports(){
     overviewHtml = `
       <div class="card paycheck-card">
         <div class="section-title">Latest ${unit.charAt(0).toUpperCase() + unit.slice(1)} — ${periodLabel(periods[0])}</div>
-        <div class="paycheck-amt">${fmtMoney(latest.totalPay)}</div>
+        <div class="paycheck-amt">${fmtMoney(latest.totalPay)} <span style="font-size:13px; font-weight:600; color:var(--muted);">gross</span></div>
+        <div class="paycheck-sub" style="margin-top:2px;">Net after deductions: <strong style="color:var(--green);">${fmtMoney(latest.net)}</strong></div>
         <div class="paycheck-sub">${latest.count} load${latest.count===1?'':'s'} · ${Math.round(latest.totalMiles)} mi · ${latest.days} day${latest.days===1?'':'s'} worked · ${latest.routes} route${latest.routes===1?'':'s'}</div>
         ${prev ? `
           <div class="info-box" style="margin-top:10px;">
@@ -2489,6 +2804,7 @@ function renderReports(){
           </div>
           <div class="pay">${fmtMoney(stats.totalPay)}</div>
         </div>
+        <div class="load-mid"><span>Gross ${fmtMoney(stats.totalPay)} · Net <strong style="color:var(--green);">${fmtMoney(stats.net)}</strong></span></div>
         <div class="load-mid">${deltaLine(stats, prevStats)}</div>
         <div class="helptext no-print" style="margin:6px 0 0; color:var(--accent);">Tap for details &amp; PDF →</div>
       </div>
@@ -2586,7 +2902,9 @@ window.viewReportDetail = function(key){
       </div>
 
       <div class="info-box">
-        Gross Pay: <strong style="color:var(--green); font-size:15px;">${fmtMoney(stats.totalPay)}</strong><br>
+        Gross Pay: <strong style="color:var(--text); font-size:15px;">${fmtMoney(stats.totalPay)}</strong><br>
+        Deductions: <strong style="color:var(--red);">-${fmtMoney(stats.dedTotal)}</strong><br>
+        Net Pay: <strong style="color:var(--green); font-size:15px;">${fmtMoney(stats.net)}</strong><br>
         ${deltaHtml}
       </div>
 
@@ -2656,7 +2974,8 @@ document.getElementById('exportBtn').addEventListener('click', async ()=>{
     exportedAt: new Date().toISOString(),
     routes: allRoutes,
     loads: allLoads,
-    documents: allDocs
+    documents: allDocs,
+    paySettings
   };
   const json = JSON.stringify(backup);
   const blob = new Blob([json], {type:'application/json'});
@@ -2693,6 +3012,7 @@ document.getElementById('restoreInput').addEventListener('change', async (e)=>{
       await loadRoutesFromDB();
       await loadLoadsFromDB();
     }
+    if(data.paySettings){ paySettings = normalizePaySettings(data.paySettings); savePaySettings(); rerenderPayViews(); }
     renderQuickStats();
     renderSettingsStats();
     showToast('Restored ✓');
@@ -2708,7 +3028,7 @@ document.getElementById('restoreInput').addEventListener('change', async (e)=>{
 /* ====================================================================
    AUTO-UPDATE — when a newer version is live on the web, reload into it
    ==================================================================== */
-const APP_VERSION = 'v31-2026-10-07';
+const APP_VERSION = 'v32-2026-10-10';
 async function checkForAppUpdate(){
   try{
     if(!/^https?:/.test(location.protocol)) return;
